@@ -11,7 +11,7 @@ class JameGam(Transcript):
     ticket_channel: str = "C0C2EHLQ96X"
     team_channel: str = "C0BV87R7YBE"
 
-    faq_link: str = "https://jamegam.hackclub.com/#faq"
+    faq_link: str = "https://hackclub.enterprise.slack.com/docs/T0266FRGM/F0BBT4JD9P0"
 
     first_ticket_create: str = f"""
 hi (user) :jamegam-yay:
