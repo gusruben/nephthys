@@ -14,7 +14,15 @@ from opentelemetry.sdk.resources import Resource
 from nephthys.utils.env import env
 
 
+# Heartbeats carry no level, so HEARTBEAT_ERRORS_ONLY goes by how the error ones are worded
+ERROR_HEARTBEAT_MARKERS = ("fail", "error", "missing content")
+
+
 async def send_heartbeat(heartbeat: str, messages: list[str] = []):
+    if env.heartbeat_errors_only and not any(
+        marker in heartbeat.lower() for marker in ERROR_HEARTBEAT_MARKERS
+    ):
+        return
     if env.slack_heartbeat_channel:
         msg = await env.slack_client.chat_postMessage(
             channel=env.slack_heartbeat_channel, text=heartbeat

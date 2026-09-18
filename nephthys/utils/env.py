@@ -67,6 +67,9 @@ class Environment:
         self.slack_maintainer_id = os.environ.get("SLACK_MAINTAINER_ID", "unset")
         self.program = os.environ.get("PROGRAM", "summer_of_making")
         self.daily_summary = get_environ_bool("DAILY_SUMMARY", default=True)
+        self.heartbeat_errors_only = get_environ_bool(
+            "HEARTBEAT_ERRORS_ONLY", default=False
+        )
         self.enable_feedback = get_environ_bool("ENABLE_FEEDBACK", default=False)
         self.app_title = os.environ.get("APP_TITLE", "helper heidi")
 
