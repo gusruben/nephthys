@@ -9,7 +9,7 @@ class JameGam(Transcript):
 
     help_channel: str = "C0BBDUEMF0E"
     ticket_channel: str = "C0C2EHLQ96X"
-    team_channel: str = "C0BV87R7YBE"
+    team_channel: str = "C0C2EHLQ96X"
 
     faq_link: str = "https://hackclub.enterprise.slack.com/docs/T0266FRGM/F0BBT4JD9P0"
 
