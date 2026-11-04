@@ -340,7 +340,17 @@ async def on_message(event: Dict[str, Any], client: AsyncWebClient):
     if "subtype" in event and event["subtype"] not in ALLOWED_SUBTYPES:
         return
     if "bot_id" in event:
-        logging.info(f"Ignoring bot message from {event['bot_id']}")
+        # A helper posting with their own user token through an app (like Augie's
+        # dm-speedrun triage tool) also gets a bot_id. Treat those as the helper
+        # when they're in a ticket thread, so ?resolve / ?reopen and helper replies
+        # work from there. Real bot posts (this bot included) have no helper user.
+        helper = None
+        if event.get("user") and event.get("thread_ts"):
+            helper = await User.objects().where(User.slack_id == event["user"]).first()
+        if not (helper and helper.helper):
+            logging.info(f"Ignoring bot message from {event['bot_id']}")
+            return
+        await handle_message_in_thread(event, helper)
         return
 
     async with perf_timer("DB user lookup"):
