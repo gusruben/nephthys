@@ -54,7 +54,6 @@ def config(**jam) -> JamConfig:
             "endDate": "2026-12-13T17:00:00Z",
             "itchUrl": "https://itch.io/jam/the-mfg-gamblers-jam",
             "submitUrl": "",
-            "submitClosesAt": "2026-12-17T17:00:00Z",
             "submitWindowDays": 4,
             "hosted": True,
         },
@@ -65,7 +64,6 @@ def config(**jam) -> JamConfig:
                 "2026-09": "the cozy fall jam",
                 "2026-10": "the jame gam game jam",
             },
-            "pickWindow": {"days": 7, "oldDays": 4, "weekFrom": "2026-12"},
         },
     }
     data["jam"].update(jam)

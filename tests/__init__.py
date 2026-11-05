@@ -1,11 +1,9 @@
-"""Unit tests. Run with: uv run python -m unittest discover tests
-
-The bot reads its settings at import time, so tests set a fake environment
-here before anything from nephthys is imported. Nothing here talks to Slack,
-Airtable or the AI; the integration test (test_flow.py) also needs a local
-Postgres in TEST_DATABASE_URL and is skipped without one.
-"""
-
+# Unit tests. Run with: uv run python -m unittest discover tests
+#
+# The bot reads its settings at import time, so tests set a fake environment
+# here before anything from nephthys is imported. Nothing here talks to Slack,
+# Airtable or the AI; the integration test (test_flow.py) also needs a local
+# Postgres in TEST_DATABASE_URL and is skipped without one.
 import os
 
 FAKE_ENV = {

@@ -1,18 +1,21 @@
-"""Turns someone's Airtable rows into a status answer, or decides a human
-should handle it.
-
-Pure functions over the rows (no Slack, no network) so every branch has a
-unit test. The rules come from the jame gam pipeline (jamegam CLAUDE.md, ari's
-bridge.ts and its prize DM tab):
-
-- Approved and "Prize Only" both open the shop and both wait on Augie's
-  spotcheck before the prize DM. To the submitter both are just "approved".
-  An old Prize Only row whose DM already went out is final.
-- "No Prize" is a rejection as far as the submitter knows.
-- Rejections are never posted in a thread, and Pending / Needs Augie /
-  Stickers Only / anything unexpected goes to a human.
-"""
-
+# Turns someone's Airtable rows into a status reply, or decides a human
+# should handle it.
+#
+# This isn't a status checker. It catches people asking or complaining about
+# their game in the jam under review (the newest jam with submissions), and
+# only says one of three things: not reviewed yet, approved with the prize DM
+# coming, or the prize DM already went out. Anything else, including anything
+# about an older jam, is a normal ticket; the ticket post still shows what the
+# bot found so helpers have it.
+#
+# Pure functions over the rows (no Slack, no network) so every branch has a
+# unit test. From the jame gam pipeline (jamegam CLAUDE.md, ari's bridge.ts and
+# its prize DM tab):
+#
+# - Approved and "Prize Only" both open the shop and both wait on Augie's
+#   spotcheck before the prize DM. To the submitter both are just "approved".
+# - "No Prize" is a rejection as far as the submitter knows.
+# - Rejections are never posted in a thread.
 import re
 from dataclasses import dataclass
 from dataclasses import field
@@ -24,18 +27,17 @@ from nephthys.utils.help_bot.airtable import Submission
 from nephthys.utils.help_bot.jam_config import et_date_text
 from nephthys.utils.help_bot.jam_config import et_text
 from nephthys.utils.help_bot.jam_config import JamConfig
-from nephthys.utils.help_bot.jam_config import pick_deadline
 
 SHOP_STATUSES = {"Approved", "Prize Only"}
 REJECTED_STATUSES = {"Rejected", "No Prize"}
 WITHDRAWN = "Withdrawn"
-# States the bot can tell the asker about without a human
-CLEAR_STATES = {
-    "unreviewed",
-    "approved_checking",
-    "approved_ready",
-    "approved_queued",
-    "approved_dm_sent",
+# The detailed states the bot can answer, and which of its three replies each gets
+REPLY_FOR_STATE = {
+    "unreviewed": "status_unreviewed",
+    "approved_checking": "status_approved",
+    "approved_ready": "status_approved",
+    "approved_queued": "status_approved",
+    "approved_dm_sent": "status_dm_sent",
 }
 URL = re.compile(r"https?://\S+")
 # Something that looks like a carrier tracking number
@@ -189,51 +191,7 @@ def _order_line(order: Order) -> str | None:
     if order.status == "held for id verification":
         return copy.order_held_idv
     if order.status == "fulfilled":
-        sent = order.fulfilled_dm_sent_at
         return copy.order_fulfilled.format(date=_order_sent(order))
-    return None
-
-
-def _status_line(
-    row: Submission,
-    orders: list[Order],
-    config: JamConfig | None,
-    queue_ahead: int | None,
-    now: datetime,
-) -> str | None:
-    """The asker-facing line for one row, or None if a human should answer."""
-    copy = _copy()
-    state = row_state(row)
-    if state == "unreviewed":
-        ahead = (
-            copy.status_unreviewed_ahead.format(count=queue_ahead)
-            if queue_ahead
-            else ""
-        )
-        return copy.status_unreviewed.format(ahead=ahead)
-    if state == "approved_checking":
-        return copy.status_approved_checking
-    if state == "approved_ready":
-        return copy.status_approved_ready
-    if state == "approved_queued":
-        return copy.status_approved_queued
-    if state == "approved_dm_sent":
-        order = next((o for o in orders if o.jam == row.jam), None)
-        if order:
-            line = _order_line(order)
-            if not line:
-                return None
-            return copy.status_approved_ordered.format(prize=order.prize, order=line)
-        assert row.dm_sent_at
-        sent = et_date_text(row.dm_sent_at)
-        if not config:
-            return copy.status_approved_dm_open_no_deadline.format(sent=sent)
-        deadline = pick_deadline(config, row.dm_sent_at, row.jam)
-        if now > deadline:
-            return None
-        return copy.status_approved_dm_open.format(
-            sent=sent, deadline=et_text(deadline)
-        )
     return None
 
 
@@ -241,33 +199,27 @@ def status_outcome(
     rows: list[Submission],
     orders: list[Order],
     config: JamConfig | None,
-    queue_ahead: int | None,
+    review_jam: str | None,
     delete_after: datetime,
-    now: datetime,
 ) -> Outcome:
+    """`review_jam` is the jam under review: the newest jam anyone has
+    submitted to. Without it the bot can't tell, so a human answers."""
     copy = _copy()
     summary = submission_summary(rows, orders, config)
     if not rows:
         return _human(summary, "no_rows")
-    shown = relevant_rows(rows)
-    if not shown:
+    live = [r for r in rows if r.status != WITHDRAWN]
+    if not live:
         return _human(summary, "only_withdrawn")
-    if has_conflict(shown):
+    current = [r for r in relevant_rows(live) if review_jam and r.jam == review_jam]
+    if not current:
+        return _human(summary, "not_current", jam=review_jam or "unknown")
+    if has_conflict(current):
         return _human(summary, "conflict")
-    if any(row_state(r) not in CLEAR_STATES for r in shown):
+    if any(row_state(r) not in REPLY_FOR_STATE for r in current):
         return _human(summary, "unclear")
 
-    lines: list[tuple[Submission, str]] = []
-    for row in shown:
-        line = _status_line(row, orders, config, queue_ahead, now)
-        if line is None:
-            if row_state(row) == "approved_dm_sent" and not any(
-                o.jam == row.jam for o in orders
-            ):
-                return _human(summary, "window_closed")
-            return _human(summary, "order_unclear")
-        lines.append((row, line))
-
+    lines = [(r, getattr(copy, REPLY_FOR_STATE[row_state(r)])) for r in current]
     if len(lines) == 1:
         row, line = lines[0]
         body = copy.status_intro_one.format(title=row.title, line=line)

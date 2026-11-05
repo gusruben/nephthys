@@ -14,7 +14,7 @@ class HelpBotCopy(BaseModel):
     class Config:
         extra = "forbid"
 
-    # FAQ answers ({url}, {question}, {answer})
+    # FAQ answers ({url}, {question}, {answer}; each answer line is quoted)
     faq_answer: str
     faq_answered_button: str
     faq_still_need_help_button: str
@@ -22,13 +22,15 @@ class HelpBotCopy(BaseModel):
     # Replaces the buttons once clicked ({user_id})
     faq_still_need_help_context: str
     buttons_not_yours: str
+    # Small line under every answer the bot gives on its own, saying it's the bot
+    bot_note: str
 
     # `?faq <topic>` ({url}, {question}, {answer}; (user) like other macros)
     faq_topic_macro: str
     # Ephemeral to the helper ({topic}, {questions})
     faq_topic_not_found: str
 
-    # Live jam facts ({name}, {start}, {end}, {itch_url}, {url}, {closes}, {days}, ...)
+    # Live jam facts ({name}, {start}, {end}, {itch_url}, {url}, {closes}, {days})
     jam_current: str
     jam_next: str
     jam_ended: str
@@ -36,28 +38,22 @@ class HelpBotCopy(BaseModel):
     theme_out: str
     form_open: str
     form_not_open: str
-    form_closed: str
-    pick_window_yours: str
-    pick_window_rule: str
 
-    # Status lookups
+    # Status of their submission in the jam under review
     status_intro_one: str
     status_intro_many: str
     status_line_many: str
     status_unreviewed: str
-    status_unreviewed_ahead: str
-    status_approved_checking: str
-    status_approved_ready: str
-    status_approved_queued: str
-    status_approved_dm_open: str
-    status_approved_dm_open_no_deadline: str
-    status_approved_ordered: str
+    status_approved: str
+    status_dm_sent: str
+    status_footer: str
+    reopen_button: str
+
+    # Order lines, used by the tracking answers
     order_not_fulfilled: str
     order_processing: str
     order_fulfilled: str
     order_held_idv: str
-    status_footer: str
-    reopen_button: str
 
     # Tracking
     tracking_info_public: str

@@ -10,10 +10,9 @@ from nephthys.utils.env import env
 from nephthys.utils.env import test_channel_scope
 from nephthys.utils.help_bot.classify import apply_guards
 from nephthys.utils.help_bot.classify import Classification
+from nephthys.utils.help_bot.classify import DIRECT_THEME
 from nephthys.utils.help_bot.classify import parse_reply
-from nephthys.utils.help_bot.jam_config import et_text
 from nephthys.utils.help_bot.jam_config import jam_facts_text
-from nephthys.utils.help_bot.jam_config import pick_deadline
 from nephthys.utils.help_bot.status import has_tracking
 from nephthys.utils.help_bot.status import status_outcome
 from nephthys.utils.help_bot.status import submission_summary
@@ -28,9 +27,9 @@ NOW = utc(2026, 11, 5, 18)
 DELETE_AFTER = NOW + timedelta(hours=24)
 
 
-def status(rows, orders=(), cfg=None, ahead=None, now=NOW):
+def status(rows, orders=(), cfg=None, review_jam="2026-10"):
     return status_outcome(
-        list(rows), list(orders), cfg or config(), ahead, DELETE_AFTER, now
+        list(rows), list(orders), cfg or config(), review_jam, DELETE_AFTER
     )
 
 
@@ -41,14 +40,20 @@ class FaqParserTests(unittest.TestCase):
 
     def test_reads_every_heading(self):
         self.assertEqual(len(self.entries), 21)
-        self.assertEqual(self.entries[0].question, "how do i know if my project is approved?")
+        self.assertEqual(
+            self.entries[0].question, "how do i know if my project is approved?"
+        )
 
     def test_keeps_links_and_mentions(self):
         by_q = {e.question: e for e in self.entries}
-        self.assertIn("<@U0BB0FJU7DM>", by_q["how do i know if my project is approved?"].answer)
+        self.assertIn(
+            "<@U0BB0FJU7DM>", by_q["how do i know if my project is approved?"].answer
+        )
         self.assertIn(
             "<https://hackclub.slack.com/archives/C0BBFQASBV2/p1785118322552799|this thread>",
-            by_q["my code is too big to upload to github, what do i do? (i'm using unity)"].answer,
+            by_q[
+                "my code is too big to upload to github, what do i do? (i'm using unity)"
+            ].answer,
         )
         self.assertIn(
             "<https://jamegam.hackclub.com/#faq-effort|this rule>",
@@ -61,7 +66,9 @@ class FaqParserTests(unittest.TestCase):
         self.assertIn("?focus_section_id=temp:C:", faq.faq_section_url(entry))
 
     def test_topic_lookup(self):
-        self.assertEqual(faq.find_faq_entry("blahaj").question, "what size is the blåhaj?")
+        self.assertEqual(
+            faq.find_faq_entry("blahaj").question, "what size is the blåhaj?"
+        )
         self.assertEqual(faq.find_faq_entry("AI").question, "is AI allowed?")
         self.assertEqual(faq.find_faq_entry("teams").question, "how do teams work?")
         self.assertIn("github", faq.find_faq_entry("github too big").question)
@@ -87,17 +94,25 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(r.faq.question, "is AI allowed?")
 
     def test_unknown_faq_becomes_human(self):
-        r = parse_reply('{"route": "faq", "faq": "made up?", "confidence": 0.9}', self.entries)
+        r = parse_reply(
+            '{"route": "faq", "faq": "made up?", "confidence": 0.9}', self.entries
+        )
         self.assertEqual(r.route, "human")
 
     def test_garbage_becomes_human(self):
         self.assertEqual(parse_reply("sure! it's an faq", self.entries).route, "human")
-        self.assertEqual(parse_reply('{"route": "banana"}', self.entries).route, "human")
+        self.assertEqual(
+            parse_reply('{"route": "banana"}', self.entries).route, "human"
+        )
 
     def test_jam_facts_needs_facts(self):
-        r = parse_reply('{"route": "jam_facts", "facts": ["moon"], "confidence": 1}', self.entries)
+        r = parse_reply(
+            '{"route": "jam_facts", "facts": ["moon"], "confidence": 1}', self.entries
+        )
         self.assertEqual(r.route, "human")
-        r = parse_reply('{"route": "jam_facts", "facts": ["form"], "confidence": 1}', self.entries)
+        r = parse_reply(
+            '{"route": "jam_facts", "facts": ["form"], "confidence": 1}', self.entries
+        )
         self.assertEqual((r.route, r.facts), ("jam_facts", ["form"]))
 
     def test_low_confidence_is_human(self):
@@ -119,73 +134,57 @@ class ClassifyTests(unittest.TestCase):
     def test_ordinary_questions_pass(self):
         entry = self.entries[0]
         r = Classification(route="faq", confidence=0.9, faq=entry)
-        self.assertEqual(apply_guards("how do i know if it's approved or rejected?", r).route, "faq")
+        self.assertEqual(
+            apply_guards("how do i know if it's approved or rejected?", r).route, "faq"
+        )
 
 
 class StatusTests(unittest.TestCase):
-    def test_unreviewed_with_queue(self):
-        out = status([row()], ahead=57)
+    def test_unreviewed(self):
+        out = status([row()])
         self.assertTrue(out.resolve)
         self.assertIn("not reviewed yet", out.answer)
-        self.assertIn("57 games submitted before yours", out.answer)
+        self.assertNotIn("before yours", out.answer)  # no queue count
         self.assertIn("deletes", out.action)
 
-    def test_unreviewed_without_queue_count(self):
-        out = status([row()], ahead=None)
-        self.assertNotIn("games submitted before", out.answer)
-
-    def test_approved_not_spotchecked(self):
-        out = status([row(status="Approved")])
-        self.assertIn("approved! your prize dm goes out after a final check", out.answer)
-        self.assertTrue(out.resolve)
-
-    def test_prize_only_reads_as_approved(self):
+    def test_approved_any_stage_is_one_reply(self):
         for r in [
+            row(status="Approved"),
+            row(status="Approved", spotchecked=True),
+            row(status="Approved", spotchecked=True, dm_queued=True),
             row(status="Prize Only"),
-            row(status="Prize Only", spotchecked=True),
-            row(status="Prize Only", dm_sent_at=utc(2026, 11, 3, 15)),
         ]:
             out = status([r])
-            self.assertIn("approved", out.answer)
+            self.assertTrue(out.resolve)
+            self.assertIn(
+                "your prize dm from <@U0BB0FJU7DM> is coming soon", out.answer
+            )
             self.assertNotIn("prize only", (out.answer + out.summary).lower())
 
-    def test_approved_spotchecked_and_queued(self):
-        self.assertIn("goes out soon", status([row(status="Approved", spotchecked=True)]).answer)
-        self.assertIn(
-            "on its way",
-            status([row(status="Approved", spotchecked=True, dm_queued=True)]).answer,
-        )
+    def test_dm_sent(self):
+        for r in [
+            row(status="Approved", spotchecked=True, dm_sent_at=utc(2026, 11, 3, 15)),
+            row(status="Prize Only", dm_sent_at=utc(2026, 10, 3, 15)),
+        ]:
+            out = status([r], orders=[order(status="fulfilled")])
+            self.assertIn("check your dms from <@U0BB0FJU7DM>", out.answer)
+            self.assertNotIn("picked", out.answer)  # orders are tracking's job
 
-    def test_dm_sent_shows_deadline_by_cycle(self):
-        # October cycle: 4 days, ends 11:59pm ET
-        out = status([row(status="Approved", spotchecked=True, dm_sent_at=utc(2026, 11, 3, 15))])
-        self.assertIn("november 3", out.answer)
-        self.assertIn("saturday, november 7 at 11:59pm ET", out.answer)
-        # December cycle on: 7 days
-        dec = row(jam="2026-12", status="Approved", dm_sent_at=utc(2027, 1, 4, 15))
-        out = status([dec], now=utc(2027, 1, 5))
-        self.assertIn("monday, january 11 at 11:59pm ET", out.answer)
-
-    def test_dm_sent_window_closed_no_order_goes_to_human(self):
-        out = status(
-            [row(status="Approved", dm_sent_at=utc(2026, 10, 1, 15))], now=utc(2026, 11, 5)
-        )
+    def test_older_jam_gets_no_reply(self):
+        # "i never got a dm about my submission from last jam"
+        out = status([row(jam="2026-09", status="Approved")], review_jam="2026-10")
         self.assertIsNone(out.answer)
-        self.assertEqual(out.reason, "window_closed")
+        self.assertEqual(out.reason, "not_current")
+        self.assertIn("2026-10", out.action)
+        self.assertIn("the cozy fall jam (2026-09)", out.summary)  # helper context
 
-    def test_dm_sent_with_order(self):
-        out = status(
-            [row(status="Approved", dm_sent_at=utc(2026, 10, 1, 15))],
-            orders=[order(status="processing")],
-        )
-        self.assertIn("you picked blahaj plushie. it's being processed", out.answer)
+    def test_unknown_review_jam_is_human(self):
+        self.assertEqual(status([row()], review_jam=None).reason, "not_current")
 
-    def test_no_deadline_without_config(self):
-        out = status_outcome(
-            [row(status="Approved", dm_sent_at=utc(2026, 11, 3, 15))],
-            [], None, None, DELETE_AFTER, NOW,
-        )
-        self.assertIn("before the deadline in that dm", out.answer)
+    def test_current_jam_only(self):
+        out = status([row(jam="2026-09", status="Rejected"), row(id="r2", status="")])
+        self.assertTrue(out.resolve)
+        self.assertIn("not reviewed yet", out.answer)
 
     def test_rejections_never_posted(self):
         for s in ["Rejected", "No Prize"]:
@@ -204,7 +203,12 @@ class StatusTests(unittest.TestCase):
             out = status([r])
             self.assertIsNone(out.answer, r.status)
             self.assertEqual(out.reason, "unclear")
-        self.assertIn("need a video", status([row(status="Pending", notes="a\npending (ari): need a video")]).summary)
+        self.assertIn(
+            "need a video",
+            status(
+                [row(status="Pending", notes="a\npending (ari): need a video")]
+            ).summary,
+        )
 
     def test_no_rows_and_withdrawn(self):
         self.assertEqual(status([]).reason, "no_rows")
@@ -220,20 +224,17 @@ class StatusTests(unittest.TestCase):
 
     def test_duplicate_rows_fold(self):
         out = status([row(status="Approved"), row(id="rec2", status="Approved")])
-        self.assertIn("here's where *Rooted* is at", out.answer)
+        self.assertIn("here's what i can see for *Rooted*", out.answer)
 
     def test_two_games(self):
-        out = status([
-            row(status="Approved"),
-            row(id="rec2", title="Second", code_url="https://github.com/a/second"),
-        ])
+        out = status(
+            [
+                row(status="Approved"),
+                row(id="rec2", title="Second", code_url="https://github.com/a/second"),
+            ]
+        )
         self.assertIn("- *Rooted*: approved!", out.answer)
         self.assertIn("- *Second*: submitted", out.answer)
-
-    def test_newest_jam_only(self):
-        out = status([row(jam="2026-09", status="Rejected"), row(status="")])
-        self.assertTrue(out.resolve)
-        self.assertIn("not reviewed yet", out.answer)
 
     def test_summary_names_the_jam(self):
         s = submission_summary([row(status="Approved")], [order()], config())
@@ -245,7 +246,9 @@ class StatusTests(unittest.TestCase):
 class TrackingTests(unittest.TestCase):
     def test_has_tracking(self):
         yes = [
-            order(info="https://tools.usps.com/go/TrackConfirmAction?tLabels=9334611043900019711853"),
+            order(
+                info="https://tools.usps.com/go/TrackConfirmAction?tLabels=9334611043900019711853"
+            ),
             order(info="tracking 1Z999AA10123456784"),
             order(prize="steam gift card", info="Check your DMs from <@U07F2QA059B>!"),
             order(prize="minecraft", info="Code sent in DM by @Gabin "),
@@ -253,9 +256,13 @@ class TrackingTests(unittest.TestCase):
         ]
         no = [
             order(info=""),
-            order(info="Ordered but not shipped yet, DM Gabin on Slack in a few days for the tracking link."),
+            order(
+                info="Ordered but not shipped yet, DM Gabin on Slack in a few days for the tracking link."
+            ),
             order(info="wiley.com order# CR, will send tracking when I have it"),
-            order(info="Heya! This order has been fulfilled and is on it's way to you!"),
+            order(
+                info="Heya! This order has been fulfilled and is on it's way to you!"
+            ),
         ]
         for o in yes:
             self.assertTrue(has_tracking(o), o.info)
@@ -265,7 +272,9 @@ class TrackingTests(unittest.TestCase):
     def test_not_shipped(self):
         out = tracking_outcome([row()], [order()], config(), DELETE_AFTER)
         self.assertTrue(out.resolve)
-        self.assertEqual(out.answer, "about your blahaj plushie: it hasn't been sent yet")
+        self.assertEqual(
+            out.answer, "about your blahaj plushie: it hasn't been sent yet"
+        )
 
     def test_fulfilled_with_tracking_is_private(self):
         o = order(
@@ -280,14 +289,20 @@ class TrackingTests(unittest.TestCase):
         self.assertIn("kid@example.com", out.private)
 
     def test_fulfilled_without_tracking_pings(self):
-        o = order(status="fulfilled", info="on its way!", fulfilled_dm_sent_at=utc(2026, 10, 20))
+        o = order(
+            status="fulfilled",
+            info="on its way!",
+            fulfilled_dm_sent_at=utc(2026, 10, 20),
+        )
         out = tracking_outcome([row()], [o], config(), DELETE_AFTER)
         self.assertFalse(out.resolve)
         self.assertIs(out.ping_order, o)
         self.assertIn("pinged the person who sent it", out.answer)
 
     def test_no_contact_goes_to_human(self):
-        o = order(status="fulfilled", info="", fulfilled_by_name="", fulfilled_by_email="")
+        o = order(
+            status="fulfilled", info="", fulfilled_by_name="", fulfilled_by_email=""
+        )
         self.assertEqual(
             tracking_outcome([row()], [o], config(), DELETE_AFTER).reason,
             "no_tracking_contact",
@@ -298,7 +313,9 @@ class TrackingTests(unittest.TestCase):
             [row()],
             [
                 order(id="a", jam="2026-08", status="fulfilled", info="https://t.co/x"),
-                order(id="b", jam="2026-10", prize="kodak charmera", status="processing"),
+                order(
+                    id="b", jam="2026-10", prize="kodak charmera", status="processing"
+                ),
             ],
             config(),
             DELETE_AFTER,
@@ -313,7 +330,7 @@ class JamFactsTests(unittest.TestCase):
         text = jam_facts_text(config(), ["jam_dates", "theme", "form"], now=NOW)
         self.assertIn("the next jam is *the mfg gambler's jam*", text)
         self.assertIn("saturday, december 5 at 6pm ET", text)
-        self.assertIn("the theme drops when the jam starts", text)
+        self.assertIn("the theme will be announced when the jam starts", text)
         self.assertIn("you'll have 4 days after the jam ends", text)
 
     def test_during_the_jam(self):
@@ -321,32 +338,77 @@ class JamFactsTests(unittest.TestCase):
         self.assertIn("the current jam is", text)
         self.assertIn("the theme is already out", text)
 
-    def test_form_open_and_closed(self):
+    def test_form_open_until_end_plus_window(self):
         cfg = config(submitUrl="https://forms.example/jg")
-        self.assertIn("it closes thursday, december 17 at 12pm ET",
-                      jam_facts_text(cfg, ["form"], now=utc(2026, 12, 14)))
-        self.assertIn("closed thursday, december 17",
-                      jam_facts_text(cfg, ["form"], now=utc(2026, 12, 18)))
+        self.assertIn(
+            "it closes thursday, december 17 at 12pm ET",
+            jam_facts_text(cfg, ["form"], now=utc(2026, 12, 14)),
+        )
+        # After the window: no answer, a normal ticket
+        self.assertIsNone(jam_facts_text(cfg, ["form"], now=utc(2026, 12, 18)))
+        # No window set: can't say when it closes, so no answer
+        self.assertIsNone(
+            jam_facts_text(
+                config(submitUrl="https://f", submitWindowDays=None),
+                ["form"],
+                now=utc(2026, 12, 14),
+            )
+        )
 
     def test_after_the_jam(self):
         text = jam_facts_text(config(), ["jam_dates", "theme"], now=utc(2026, 12, 15))
         self.assertIn("wrapped up", text)
         self.assertNotIn("theme", text)
 
-    def test_pick_window(self):
-        self.assertIn("4 days", jam_facts_text(config(), ["pick_window"], asker_jam="2026-10"))
-        self.assertIn("7 days", jam_facts_text(config(), ["pick_window"], asker_jam="2026-12"))
-        rule = jam_facts_text(config(), ["pick_window"])
-        self.assertIn("7 days to pick", rule)
-        self.assertIn("4 days for jams before the mfg gambler's jam", rule)
-
     def test_nothing_answerable(self):
         self.assertIsNone(jam_facts_text(config(), ["form"], now=utc(2026, 12, 15)))
+        self.assertIsNone(jam_facts_text(config(), ["pick_window"], now=NOW))
 
-    def test_deadline_matches_site(self):
-        # closesAtFor: end of the ET day, pickWindowDays after the DM
-        d = pick_deadline(config(), utc(2026, 11, 4, 2), "2026-10")  # nov 3, 9pm ET
-        self.assertEqual(et_text(d), "saturday, november 7 at 11:59pm ET")
+
+class ThemeStrictnessTests(unittest.TestCase):
+    DIRECT = [
+        "what's the theme?",
+        "what is the theme for this jam",
+        "when will the theme be announced?",
+        "when does the theme drop",
+        "where will the jam theme be announced?",
+        "is the theme out yet",
+        "theme?",
+        "when do we get the theme",
+    ]
+    NOT_DIRECT = [
+        "does my game have to fit the theme?",
+        "can i make a game that ignores the theme",
+        "is my idea ok for the theme? its a space game",
+        "what does the theme mean",
+        "Can you make any game you want for the next Jam, or does it have to be about a specific theme?",
+        "Guys can you explain the theme and an example project",
+        "my game kinda drifted from the theme is that ok",
+    ]
+
+    def test_direct_theme_questions(self):
+        for text in self.DIRECT:
+            self.assertRegex(text, DIRECT_THEME)
+        for text in self.NOT_DIRECT:
+            self.assertNotRegex(text, DIRECT_THEME)
+
+    def test_theme_mentions_go_to_a_human(self):
+        for text in self.NOT_DIRECT:
+            r = Classification(route="jam_facts", confidence=0.9, facts=["theme"])
+            self.assertEqual(apply_guards(text, r).route, "human", text)
+
+    def test_other_facts_survive(self):
+        r = Classification(
+            route="jam_facts", confidence=0.9, facts=["jam_dates", "theme"]
+        )
+        out = apply_guards("when does the next jam start, and does it need a theme?", r)
+        self.assertEqual((out.route, out.facts), ("jam_facts", ["jam_dates"]))
+
+    def test_direct_theme_kept(self):
+        r = Classification(route="jam_facts", confidence=0.9, facts=["theme"])
+        self.assertEqual(
+            apply_guards("when does the theme come out?", r).facts, ["theme"]
+        )
 
 
 EMOJI = re.compile(r":[a-z0-9_+\-]+:|[\U0001F300-\U0001FAFF☀-➿]")
@@ -379,20 +441,48 @@ class CopyRulesTests(unittest.TestCase):
             marks = EMOJI.findall(text) + EMOTICON.findall(text)
             self.assertLessEqual(len(marks), 1, name)
             for match in EMOTICON.finditer(text):
-                rest = text[match.end():].split("\n", 1)[0].strip()
+                rest = text[match.end() :].split("\n", 1)[0].strip()
                 self.assertEqual(rest, "", f"{name}: text after an emoticon")
 
     def test_every_placeholder_is_filled(self):
         # The templates only use the names the code passes; a typo would
         # raise KeyError at runtime, so render each with dummy values.
-        values = {k: "x" for k in [
-            "url", "question", "answer", "user_id", "topic", "questions", "name",
-            "start", "end", "itch_url", "closes", "days", "old_days",
-            "week_from_name", "title", "line", "lines", "ahead", "count", "sent",
-            "deadline", "prize", "order", "date", "info", "fulfiller", "asker",
-            "order_url", "thread_url", "summary", "what", "when", "reason",
-            "note", "status",
-        ]}
+        values = {
+            k: "x"
+            for k in [
+                "url",
+                "question",
+                "answer",
+                "user_id",
+                "topic",
+                "questions",
+                "name",
+                "start",
+                "end",
+                "itch_url",
+                "closes",
+                "days",
+                "old_days",
+                "title",
+                "line",
+                "lines",
+                "prize",
+                "order",
+                "date",
+                "info",
+                "fulfiller",
+                "asker",
+                "order_url",
+                "thread_url",
+                "summary",
+                "what",
+                "when",
+                "reason",
+                "note",
+                "status",
+                "jam",
+            ]
+        }
         for name, text in self.strings():
             text.format(**values)
 

@@ -1,12 +1,10 @@
 # pyright: reportArgumentType=false, reportOptionalMemberAccess=false, reportOptionalOperand=false
-"""End-to-end ticket flow against a real (local, throwaway) Postgres, with a
-fake Slack client and stubbed AI / Airtable / jam config.
-
-Needs TEST_DATABASE_URL pointing at a migrated database; skipped otherwise.
-It checks that the real help channel behaves exactly as before, and that the
-test channel gets the new flow without leaking into stats.
-"""
-
+# End-to-end ticket flow against a real (local, throwaway) Postgres, with a
+# fake Slack client and stubbed AI / Airtable / jam config.
+#
+# Needs TEST_DATABASE_URL pointing at a migrated database; skipped otherwise.
+# It checks that the real help channel behaves exactly as before, and that the
+# test channel gets the new flow without leaking into stats.
 import asyncio
 import os
 import unittest
@@ -108,14 +106,14 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         async def fake_config():
             return config()
 
-        async def fake_ahead(created_at):
-            return 3
+        async def fake_review_jam():
+            return "2026-10"
 
         help_bot.classify = fake_classify
         help_bot.get_jam_config = fake_config
         help_bot.airtable.submissions_for = fake_rows
         help_bot.airtable.orders_for = fake_orders
-        help_bot.airtable.unreviewed_before = fake_ahead
+        help_bot.airtable.review_jam = fake_review_jam
 
     async def asyncTearDown(self):
         await self.env.session.close()
@@ -159,14 +157,21 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
             [p["channel"] for p in posts], ["CTESTTICKETS", "CTESTHELP", "CTESTHELP"]
         )
         answer = posts[2]
-        self.assertIn("approved! your prize dm goes out after a final check", answer["text"])
+        self.assertIn(
+            "approved! your prize dm from <@U0BB0FJU7DM> is coming soon", answer["text"]
+        )
         self.assertIn("reopen-button", str(answer["blocks"]))
         self.assertIn("deletes itself in 24 hours", str(answer["blocks"]))
+        self.assertIn("i'm the help bot", str(answer["blocks"]))
 
         ticket = await Ticket.objects().where(Ticket.id == ticket.id).first()
         self.assertEqual(ticket.status, "CLOSED")
         self.assertIsNone(ticket.closed_by)  # no helper credit
-        info = await HelpBotTicket.objects().where(HelpBotTicket.ticket == ticket.id).first()
+        info = (
+            await HelpBotTicket.objects()
+            .where(HelpBotTicket.ticket == ticket.id)
+            .first()
+        )
         self.assertTrue(info.auto_resolved)
         self.assertIsNotNone(info.delete_after)
 
@@ -176,7 +181,11 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("approved, waiting on the spotcheck", str(update["blocks"]))
         self.assertIn("answered their status and resolved it", str(update["blocks"]))
         self.assertFalse(
-            [d for d in self.slack.named("chat_delete") if d["channel"] == "CTESTTICKETS"]
+            [
+                d
+                for d in self.slack.named("chat_delete")
+                if d["channel"] == "CTESTTICKETS"
+            ]
         )
 
     async def test_test_tickets_stay_out_of_stats_and_api(self):
@@ -192,7 +201,9 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         stats = await calculate_overall_stats()
         self.assertEqual(stats.tickets_total, 1)
         now = datetime.now(timezone.utc)
-        daily = await calculate_daily_stats(now - timedelta(hours=1), now + timedelta(hours=1))
+        daily = await calculate_daily_stats(
+            now - timedelta(hours=1), now + timedelta(hours=1)
+        )
         self.assertEqual(daily.new_tickets_total, 1)
         req = Request({"type": "http", "query_string": b"status=open", "headers": []})
         res = await tickets_api(req)
@@ -203,7 +214,9 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.rows = [row(status="Rejected")]
         ticket = await self.ask("CTESTHELP", "was mine approved?")
-        texts = " ".join(p.get("text") or "" for p in self.slack.named("chat_postMessage"))
+        texts = " ".join(
+            p.get("text") or "" for p in self.slack.named("chat_postMessage")
+        )
         self.assertNotIn("reject", texts.lower())
         ticket = await Ticket.objects().where(Ticket.id == ticket.id).first()
         self.assertEqual(ticket.status, "OPEN")
@@ -220,12 +233,20 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         old_post = ticket.ticket_ts
         kid = await User.objects().where(User.slack_id == "UKID").first()
         with test_channel_scope(True):
-            await reopen(await Ticket.objects().get(Ticket.id == ticket.id), kid, self.slack)
-        info = await HelpBotTicket.objects().where(HelpBotTicket.ticket == ticket.id).first()
+            await reopen(
+                await Ticket.objects().get(Ticket.id == ticket.id), kid, self.slack
+            )
+        info = (
+            await HelpBotTicket.objects()
+            .where(HelpBotTicket.ticket == ticket.id)
+            .first()
+        )
         self.assertTrue(info.reopened)
         self.assertIsNone(info.delete_after)
         deletes = self.slack.named("chat_delete")
-        self.assertIn(("CTESTTICKETS", old_post), [(d["channel"], d["ts"]) for d in deletes])
+        self.assertIn(
+            ("CTESTTICKETS", old_post), [(d["channel"], d["ts"]) for d in deletes]
+        )
         new_post = self.slack.named("chat_postMessage")[-1]
         self.assertEqual(new_post["channel"], "CTESTTICKETS")
         self.assertIn("reopened by the asker", str(new_post["blocks"]))
@@ -237,7 +258,10 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
 
         ticket = await self.ask("CTESTHELP", "did my game get approved?")
         await HelpBotTicket.update(
-            {HelpBotTicket.delete_after: datetime.now(timezone.utc) - timedelta(minutes=1)}
+            {
+                HelpBotTicket.delete_after: datetime.now(timezone.utc)
+                - timedelta(minutes=1)
+            }
         ).where(HelpBotTicket.ticket == ticket.id)
         await delete_bot_resolved_threads()
         deleted = [(d["channel"], d["ts"]) for d in self.slack.named("chat_delete")]
@@ -249,7 +273,11 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         while not delete_thread.delete_queue.empty():
             queued.append(delete_thread.delete_queue.get_nowait())
         self.assertIn(("CTESTHELP", ticket.msg_ts), queued)
-        info = await HelpBotTicket.objects().where(HelpBotTicket.ticket == ticket.id).first()
+        info = (
+            await HelpBotTicket.objects()
+            .where(HelpBotTicket.ticket == ticket.id)
+            .first()
+        )
         self.assertIsNotNone(info.deleted_at)
 
     async def test_faq_buttons(self):
@@ -266,18 +294,29 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         self.faq_entry = faq.find_faq_entry("blahaj")
         ticket = await self.ask("CTESTHELP", "how big is the blahaj")
         answer = self.slack.named("chat_postMessage")[-1]
-        self.assertIn("full sized! (1 meter)", answer["text"])
+        self.assertIn("> full sized! (1 meter)", answer["text"])
+        self.assertIn("did that help?", answer["text"])
+        self.assertIn("i'm the help bot", str(answer["blocks"]))
+        self.assertFalse(answer["unfurl_links"])
         self.assertIn("help-bot-answered", str(answer["blocks"]))
 
         body = {
             "actions": [{"value": str(ticket.id)}],
             "user": {"id": "UKID"},
             "channel": {"id": "CTESTHELP"},
-            "message": {"ts": "1.1", "text": answer["text"], "blocks": answer["blocks"]},
+            "message": {
+                "ts": "1.1",
+                "text": answer["text"],
+                "blocks": answer["blocks"],
+            },
         }
         with test_channel_scope(True):
             await handle_need_help_button(body, self.slack)  # type: ignore
-        info = await HelpBotTicket.objects().where(HelpBotTicket.ticket == ticket.id).first()
+        info = (
+            await HelpBotTicket.objects()
+            .where(HelpBotTicket.ticket == ticket.id)
+            .first()
+        )
         self.assertTrue(info.still_need_help)
         self.assertIn("didn't help", str(self.slack.named("chat_update")[-1]["blocks"]))
 
@@ -288,20 +327,60 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         await User(slack_id="USTRANGER", username="s").save()
         with test_channel_scope(True):
             await handle_answered_button(stranger, self.slack)  # type: ignore
-        self.assertIn("only the person who asked", self.slack.named("chat_postEphemeral")[-1]["text"])
+        self.assertIn(
+            "only helpers or the person who asked",
+            self.slack.named("chat_postEphemeral")[-1]["text"],
+        )
 
         with test_channel_scope(True):
             await handle_answered_button(body, self.slack)  # type: ignore
         ticket = await Ticket.objects().where(Ticket.id == ticket.id).first()
         self.assertEqual(ticket.status, "CLOSED")
 
+    async def test_old_jam_gets_no_status_reply(self):
+        from nephthys.database.tables import Ticket
+
+        self.rows = [row(jam="2026-09", status="Approved")]
+        ticket = await self.ask(
+            "CTESTHELP", "i never got a dm about my submission from last jam"
+        )
+        posts = self.slack.named("chat_postMessage")
+        self.assertEqual(len(posts), 2)  # ticket post + the usual first reply
+        ticket = await Ticket.objects().where(Ticket.id == ticket.id).first()
+        self.assertEqual(ticket.status, "OPEN")
+        post = str(self.slack.named("chat_update")[-1]["blocks"])
+        self.assertIn("the cozy fall jam (2026-09)", post)
+        self.assertIn("nothing from them in the jam under review", post)
+
+    async def test_jam_dates_unfurl(self):
+        from nephthys.events import help_bot
+
+        async def classify(text, entries):
+            from nephthys.utils.help_bot.classify import Classification
+
+            return Classification(
+                route="jam_facts", confidence=0.9, facts=["jam_dates"]
+            )
+
+        help_bot.classify = classify
+        await self.ask("CTESTHELP", "when is the next jam?")
+        answer = self.slack.named("chat_postMessage")[-1]
+        self.assertIn("the mfg gambler's jam", answer["text"])
+        self.assertTrue(answer["unfurl_links"])
+
     async def test_tracking_ping(self):
         self.route = "tracking"
         self.orders = [order(status="fulfilled", info="on its way!")]
-        self.rows = [row(status="Approved", dm_sent_at=datetime(2026, 10, 1, tzinfo=timezone.utc))]
+        self.rows = [
+            row(
+                status="Approved", dm_sent_at=datetime(2026, 10, 1, tzinfo=timezone.utc)
+            )
+        ]
         ticket = await self.ask("CTESTHELP", "where's my tracking?")
         posts = self.slack.named("chat_postMessage")
-        ping = [p for p in posts if p["channel"] == "CTESTTICKETS" and p.get("thread_ts")]
+        ping = [
+            p for p in posts if p["channel"] == "CTESTTICKETS" and p.get("thread_ts")
+        ]
         self.assertEqual(len(ping), 1)
         self.assertTrue(ping[0]["text"].startswith("<@UGABIN> <@UKID>"))
         self.assertIn("pinged the person who sent it", posts[-1]["text"])
@@ -316,7 +395,9 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         from nephthys.utils.slack import route_test_channel
 
         async def authorize(**kwargs):
-            return AuthorizeResult(enterprise_id=None, team_id="T1", bot_token="xoxb-x", bot_user_id="UBOT")
+            return AuthorizeResult(
+                enterprise_id=None, team_id="T1", bot_token="xoxb-x", bot_user_id="UBOT"
+            )
 
         app = AsyncApp(authorize=authorize, request_verification_enabled=False)
         app.middleware(route_test_channel)
@@ -338,7 +419,11 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
                 "channel": {"id": channel},
                 "actions": [{"action_id": "probe", "value": "1", "type": "button"}],
             }
-            return AsyncBoltRequest(body="payload=" + __import__("urllib.parse").parse.quote(json.dumps(body)), mode="socket_mode")
+            return AsyncBoltRequest(
+                body="payload="
+                + __import__("urllib.parse").parse.quote(json.dumps(body)),
+                mode="socket_mode",
+            )
 
         await asyncio.gather(
             asyncio.create_task(app.async_dispatch(request("CTESTHELP"))),

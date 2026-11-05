@@ -5,7 +5,6 @@ from nephthys.transcripts.transcript import Transcript
 # next to it lists each one with when it's sent and an example rendering, so
 # keep the two in step.
 
-PRIZES_URL = "https://jamegam.hackclub.com/prizes"
 JAMEGAM_BOT = "U0BB0FJU7DM"  # sends the approved / rejected DMs
 ANNOUNCEMENTS_CHANNEL = "C0BBDUFF7K8"  # #jame-gam-announcements
 
@@ -34,43 +33,37 @@ if your question gets answered, hit the button below to mark it resolved
 
     help_bot: HelpBotCopy | None = HelpBotCopy(
         # ---- FAQ answers ----
-        faq_answer="i think the faq answers this one!\n\n*<{url}|{question}>*\n{answer}\n\ndid that answer it?",
+        faq_answer="i think the faq might answer this one!\n\n> *<{url}|{question}>*\n> {answer}\n\ndid that help?",
         faq_answered_button="that answered it",
         faq_still_need_help_button="still need help",
         faq_still_need_help_reply="no worries, a helper will be along soon to take a look",
         faq_still_need_help_context="<@{user_id}> still needs help, a helper is on the way",
-        buttons_not_yours="only the person who asked (or a helper) can use these buttons",
+        buttons_not_yours="only helpers or the person who asked can use these buttons",
+        bot_note="i'm the help bot, just trying to help. if this doesn't answer it, a helper will take a look",
         faq_topic_macro="hey (user)! the faq covers this one:\n\n*<{url}|{question}>*\n{answer}",
         faq_topic_not_found="couldn't find a faq question for `{topic}`. the questions are:\n{questions}",
         # ---- live jam facts ----
         jam_current="the current jam is *{name}*, running from {start} to {end}. here's the <{itch_url}|itch page>",
         jam_next="the next jam is *{name}*, running from {start} to {end}. here's the <{itch_url}|itch page>",
-        jam_ended=f"*{{name}}* wrapped up {{end}}, and the next jam hasn't been announced yet. keep an eye on <#{ANNOUNCEMENTS_CHANNEL}> for it!",
-        theme_upcoming="the theme drops when the jam starts, {start}",
+        jam_ended=f"*{{name}}* wrapped up {{end}}, and the next jam hasn't been announced yet. keep an eye on <#{ANNOUNCEMENTS_CHANNEL}>!",
+        theme_upcoming="the theme will be announced when the jam starts, {start}",
         theme_out="the theme is already out! it's on the <{itch_url}|itch page>",
-        form_open="the jame gam submission form is open, <{url}|submit here>. it closes {closes}",
-        form_not_open="the jame gam submission form isn't up yet. it goes up near the end of the jam, and you'll have {days} days after the jam ends to submit",
-        form_closed="the jame gam submission form for *{name}* closed {closes}",
-        pick_window_yours="you get {days} days to pick your prize once your prize dm arrives",
-        pick_window_rule="you get {days} days to pick your prize once your prize dm arrives ({old_days} days for jams before {week_from_name})",
-        # ---- status lookups ----
-        status_intro_one="here's where *{title}* is at: {line}",
-        status_intro_many="here's where your games are at:\n{lines}",
+        form_open="the submission form is open, <{url}|submit here>. it closes {closes}",
+        form_not_open="the submission form isn't up yet. it will be posted near the end of the jam, and you'll have {days} days after the jam ends to submit",
+        # ---- status of their submission in the jam under review ----
+        status_intro_one="here's what i can see for *{title}*: {line}",
+        status_intro_many="here's what i can see for your games:\n{lines}",
         status_line_many="- *{title}*: {line}",
-        status_unreviewed=f"submitted, but not reviewed yet. {{ahead}}reviews can take 3 to 4 weeks, and you'll get a dm from <@{JAMEGAM_BOT}> as soon as it's done",
-        status_unreviewed_ahead="{count} games submitted before yours are still waiting too. ",
-        status_approved_checking="approved! your prize dm goes out after a final check",
-        status_approved_ready="approved! your prize dm goes out soon",
-        status_approved_queued="approved! your prize dm is on its way",
-        status_approved_dm_open=f"approved! your prize dm went out {{sent}}. pick your prize at <{PRIZES_URL}|jamegam.hackclub.com/prizes> by {{deadline}}",
-        status_approved_dm_open_no_deadline=f"approved! your prize dm went out {{sent}}. pick your prize at <{PRIZES_URL}|jamegam.hackclub.com/prizes> before the deadline in that dm",
-        status_approved_ordered="approved, and you picked {prize}. {order}",
+        status_unreviewed=f"submitted, but not reviewed yet. reviews can take 3 to 4 weeks, and you'll get a dm from <@{JAMEGAM_BOT}> as soon as it's done",
+        status_approved=f"approved! your prize dm from <@{JAMEGAM_BOT}> is coming soon",
+        status_dm_sent=f"approved, and your prize dm already went out. check your dms from <@{JAMEGAM_BOT}>",
+        status_footer="this thread deletes itself in 24 hours unless you hit reopen",
+        reopen_button="reopen",
+        # ---- order lines (tracking) ----
         order_not_fulfilled="it hasn't been sent yet",
         order_processing="it's being processed right now",
         order_fulfilled="it was sent {date}",
         order_held_idv="it's on hold until your identity verification goes through",
-        status_footer="this thread deletes itself in 24 hours unless you reopen it. if anything here looks off, hit reopen and a helper will take a look",
-        reopen_button="reopen",
         # ---- tracking ----
         tracking_info_public="your {prize} was sent {date}! i've put the shipping details just below, only you can see them",
         tracking_info_private="here's what the person who sent your {prize} wrote:\n>{info}",
@@ -96,7 +89,7 @@ if your question gets answered, hit the button below to mark it resolved
             "only_withdrawn": "their only submissions are withdrawn",
             "unclear": "their submission needs a human look (see above)",
             "conflict": "they have rows for the same game that disagree",
-            "window_closed": "their pick window closed and they never ordered",
+            "not_current": "nothing from them in the jam under review ({jam}), so no status reply",
             "no_order": "no order found for them",
             "order_unclear": "their order needs a human look",
             "airtable": "couldn't read airtable",

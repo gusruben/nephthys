@@ -1,11 +1,9 @@
-"""Reads the program's FAQ canvas so the bot can quote it.
-
-Ported from hackclub/nephthys-plus (nephthys/utils/faq.py): same canvas parser
-and refresh loop, minus the event-channel list and the Jev decisions call. Two
-additions: links in an answer are kept as Slack links, and an answer can be
-looked up by topic for the `?faq <topic>` macro.
-"""
-
+# Reads the program's FAQ canvas so the bot can quote it.
+#
+# Ported from hackclub/nephthys-plus (nephthys/utils/faq.py): same canvas parser
+# and refresh loop, minus the event-channel list and the Jev decisions call. Two
+# additions: links in an answer are kept as Slack links, and an answer can be
+# looked up by topic for the `?faq <topic>` macro.
 import logging
 import re
 from html.parser import HTMLParser

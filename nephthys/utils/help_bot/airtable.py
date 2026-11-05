@@ -1,12 +1,11 @@
-"""Read-only lookups in the jame gam Airtable base.
-
-The bot only ever reads: submissions and shop orders for one Slack ID, and a
-count of games still waiting for review. Table IDs (not names) so a rename in
-Airtable can't break it.
-"""
-
+# Read-only lookups in the jame gam Airtable base.
+#
+# The bot only ever reads: submissions and shop orders for one Slack ID, and a
+# count of games still waiting for review. Table IDs (not names) so a rename in
+# Airtable can't break it.
 import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timezone
@@ -138,7 +137,9 @@ async def _list(table: str, formula: str, fields: list[str]) -> list[dict]:
         url = f"{API}/{env.jamegam_airtable_base}/{table}?{query}"
         try:
             async with env.session.get(
-                url, headers={"Authorization": f"Bearer {token}"}, timeout=ClientTimeout(total=15),
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=ClientTimeout(total=15),
             ) as res:
                 body = await res.json()
                 if res.status != 200:
@@ -170,16 +171,42 @@ async def orders_for(slack_id: str) -> list[Order]:
     return [order_from_record(r) for r in records]
 
 
-async def unreviewed_before(created_at: datetime) -> int | None:
-    """How many games submitted before this one are still waiting for a
-    review. None if Airtable can't be read (the reply just leaves it out)."""
-    stamp = created_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    formula = (
-        f"AND({{review_status}}='', IS_BEFORE(CREATED_TIME(), '{stamp}'))"
-    )
-    try:
-        records = await _list(SUBMISSION_TABLE, formula, ["jam"])
-    except AirtableError as e:
-        logging.warning(f"Failed to count the review queue: {e}")
+_review_jam: tuple[float, str] | None = None
+
+
+async def review_jam() -> str | None:
+    """The jam under review: the newest `jam` on any submission. Cached for
+    ten minutes. None if Airtable can't be read."""
+    global _review_jam
+    if _review_jam and time.monotonic() - _review_jam[0] < 600:
+        return _review_jam[1]
+    token = env.jamegam_airtable_token
+    if not token:
         return None
-    return len(records)
+    query = "&".join(
+        f"{k}={quote(v)}"
+        for k, v in [
+            ("fields[]", "jam"),
+            ("filterByFormula", "NOT({jam}='')"),
+            ("sort[0][field]", "jam"),
+            ("sort[0][direction]", "desc"),
+            ("maxRecords", "1"),
+        ]
+    )
+    url = f"{API}/{env.jamegam_airtable_base}/{SUBMISSION_TABLE}?{query}"
+    try:
+        async with env.session.get(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=ClientTimeout(total=15),
+        ) as res:
+            body = await res.json()
+            if res.status != 200:
+                raise AirtableError(f"Airtable {res.status}: {body}")
+        jam = (body.get("records") or [{}])[0].get("fields", {}).get("jam")
+    except Exception as e:
+        logging.warning(f"Failed to read the jam under review: {e}")
+        return _review_jam[1] if _review_jam else None
+    if jam:
+        _review_jam = (time.monotonic(), jam)
+    return jam

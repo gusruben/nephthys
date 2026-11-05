@@ -1,11 +1,9 @@
-"""The jame gam help bot: answers new tickets from the FAQ canvas, the live jam
-config or the asker's own Airtable rows, and leaves everything else for a
-human.
-
-Only runs in help channels listed in JAMEGAM_NEW_FLOW_CHANNELS (see
-env.new_flow_enabled). Everywhere else tickets behave exactly as before.
-"""
-
+# The jame gam help bot: answers new tickets from the FAQ canvas, the live jam
+# config or the asker's own Airtable rows, and leaves everything else for a
+# human.
+#
+# Only runs in help channels listed in JAMEGAM_NEW_FLOW_CHANNELS (see
+# env.new_flow_enabled). Everywhere else tickets behave exactly as before.
 import asyncio
 import logging
 import re
@@ -32,12 +30,11 @@ from nephthys.utils.env import env
 from nephthys.utils.faq import faq_link_label
 from nephthys.utils.faq import faq_section_url
 from nephthys.utils.help_bot import airtable
-from nephthys.utils.help_bot.classify import classify
 from nephthys.utils.help_bot.classify import Classification
+from nephthys.utils.help_bot.classify import classify
 from nephthys.utils.help_bot.jam_config import get_jam_config
 from nephthys.utils.help_bot.jam_config import jam_facts_text
 from nephthys.utils.help_bot.status import Outcome
-from nephthys.utils.help_bot.status import relevant_rows
 from nephthys.utils.help_bot.status import status_outcome
 from nephthys.utils.help_bot.status import submission_summary
 from nephthys.utils.help_bot.status import tracking_outcome
@@ -149,30 +146,31 @@ async def _run_help_bot(
         reply = copy.faq_answer.format(
             url=faq_section_url(entry),
             question=faq_link_label(entry),
-            answer=entry.answer,
+            # The template quotes the answer, so every line needs the quote
+            answer=entry.answer.replace("\n", "\n> "),
         )
         info.answer_ts = await post_answer_with_buttons(ticket, reply, client)
 
     elif result.route == "jam_facts":
-        asker_jam = max((r.jam for r in relevant_rows(rows)), default=None)
-        reply = (
-            jam_facts_text(config, result.facts, asker_jam=asker_jam)
-            if config
-            else None
-        )
+        reply = jam_facts_text(config, result.facts) if config else None
         if reply:
             info.action_summary = copy.ticket_post_actions["jam_facts"]
-            info.answer_ts = await post_answer_with_buttons(ticket, reply, client)
+            # Unfurl the itch page when the answer links it
+            info.answer_ts = await post_answer_with_buttons(
+                ticket, reply, client, unfurl="jam_dates" in result.facts
+            )
         else:
             info.route = "human"
 
     elif result.route in ("status", "tracking"):
         if airtable_error:
             reason = copy.ticket_post_reasons["airtable"]
-            info.action_summary = copy.ticket_post_actions["human"].format(reason=reason)
+            info.action_summary = copy.ticket_post_actions["human"].format(
+                reason=reason
+            )
         else:
             outcome = await _status_or_tracking(
-                result, rows, orders, config, delete_after, now
+                result, rows, orders, config, delete_after
             )
             await act_on_outcome(ticket, info, outcome, author_id, delete_after, client)
 
@@ -181,17 +179,12 @@ async def _run_help_bot(
 
 
 async def _status_or_tracking(
-    result: Classification, rows, orders, config, delete_after, now
+    result: Classification, rows, orders, config, delete_after
 ) -> Outcome:
     if result.route == "tracking" and orders:
         return tracking_outcome(rows, orders, config, delete_after)
-    queue_ahead = None
-    waiting = [r for r in relevant_rows(rows) if not r.status]
-    if waiting:
-        queue_ahead = await airtable.unreviewed_before(
-            min(r.created_at for r in waiting)
-        )
-    return status_outcome(rows, orders, config, queue_ahead, delete_after, now)
+    review_jam = await airtable.review_jam()
+    return status_outcome(rows, orders, config, review_jam, delete_after)
 
 
 async def act_on_outcome(
@@ -225,7 +218,9 @@ async def act_on_outcome(
         info.action_summary = copy.ticket_post_actions["tracking_ping"].format(
             fulfiller=fulfiller
         )
-        info.answer_ts = await post_reply(ticket, outcome.answer, client)
+        info.answer_ts = await post_reply(
+            ticket, outcome.answer, client, blocks=_answer_blocks(outcome.answer)
+        )
         await _send_private(ticket, asker_id, outcome.private, client)
         return
 
@@ -235,7 +230,7 @@ async def act_on_outcome(
             outcome.answer,
             client,
             blocks=[
-                Section(outcome.answer),
+                *_answer_blocks(outcome.answer),
                 Context(elements=[Text(copy.status_footer)]),
                 Actions(
                     elements=[
@@ -253,7 +248,16 @@ async def act_on_outcome(
         info.auto_resolved = True
         info.delete_after = delete_after
     else:
-        info.answer_ts = await post_reply(ticket, outcome.answer, client)
+        info.answer_ts = await post_reply(
+            ticket, outcome.answer, client, blocks=_answer_blocks(outcome.answer)
+        )
+
+
+def _answer_blocks(text: str) -> list:
+    """An answer the bot gives on its own, with the line saying it's the bot."""
+    copy = env.transcript.help_bot
+    assert copy
+    return [Section(text), Context(elements=[Text(copy.bot_note)])]
 
 
 async def _send_private(
@@ -287,7 +291,11 @@ async def _fulfiller_mention(order: airtable.Order) -> str:
 
 
 async def post_reply(
-    ticket: Ticket, text: str, client: AsyncWebClient, blocks: list | None = None
+    ticket: Ticket,
+    text: str,
+    client: AsyncWebClient,
+    blocks: list | None = None,
+    unfurl: bool = False,
 ) -> str:
     """Like reply_to_ticket, but returns the message's ts."""
     response = await client.chat_postMessage(
@@ -295,8 +303,8 @@ async def post_reply(
         thread_ts=ticket.msg_ts,
         text=text,
         blocks=[b.build() for b in blocks] if blocks else None,
-        unfurl_links=False,
-        unfurl_media=False,
+        unfurl_links=unfurl,
+        unfurl_media=unfurl,
     )
     msg: dict = response["message"]  # type: ignore (assuming message exists)
     ts = msg.get("ts")
@@ -330,10 +338,14 @@ def answer_buttons(ticket_id: int) -> Actions:
 
 
 async def post_answer_with_buttons(
-    ticket: Ticket, text: str, client: AsyncWebClient
+    ticket: Ticket, text: str, client: AsyncWebClient, unfurl: bool = False
 ) -> str:
     return await post_reply(
-        ticket, text, client, blocks=[Section(text), answer_buttons(ticket.id)]
+        ticket,
+        text,
+        client,
+        blocks=[*_answer_blocks(text), answer_buttons(ticket.id)],
+        unfurl=unfurl,
     )
 
 
@@ -350,10 +362,14 @@ async def bot_resolve(ticket: Ticket, client: AsyncWebClient) -> None:
     ).where(Ticket.id == ticket.id)
     try:
         await client.reactions_add(
-            channel=env.slack_help_channel, name="white_check_mark", timestamp=ticket.msg_ts
+            channel=env.slack_help_channel,
+            name="white_check_mark",
+            timestamp=ticket.msg_ts,
         )
         await client.reactions_remove(
-            channel=env.slack_help_channel, name="thinking_face", timestamp=ticket.msg_ts
+            channel=env.slack_help_channel,
+            name="thinking_face",
+            timestamp=ticket.msg_ts,
         )
     except SlackApiError as e:
         logging.warning(f"Help bot reaction update failed: {e.response.get('error')}")
@@ -402,7 +418,9 @@ async def refresh_ticket_post(ticket: Ticket, client: AsyncWebClient) -> None:
 async def on_ticket_reopened(ticket: Ticket) -> None:
     """Called by reopen() before it posts the new ticket post. Stops the
     pending thread deletion, and removes the old post the bot kept up."""
-    info = await HelpBotTicket.objects().where(HelpBotTicket.ticket == ticket.id).first()
+    info = (
+        await HelpBotTicket.objects().where(HelpBotTicket.ticket == ticket.id).first()
+    )
     if not info:
         return
     if info.auto_resolved and ticket.ticket_ts:

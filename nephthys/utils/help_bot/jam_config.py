@@ -1,11 +1,12 @@
-"""The live jam config, read from the jame gam site's /api/jam endpoint.
-
-The site's src/lib/jam.js and src/lib/shop.js are the source of truth for the
-current jam, its dates, the submission form and the prize pick window. The bot
-never copies those rules: it reads them here, and if the endpoint can't be
-reached it says nothing it would have needed them for.
-"""
-
+# The live jam config, read from the jame gam site's /api/jam endpoint.
+#
+# The site's src/lib/jam.js (and shop.js for the jam names) is the source of
+# truth for the current jam, its dates and the submission form. The bot never
+# copies those: it reads them here, and if the endpoint can't be reached it says
+# nothing it would have needed them for.
+#
+# The form counts as open when jam.js has a `submitUrl` and it's before the jam
+# ends plus `submitWindowDays`. There's deliberately no separate close time.
 import logging
 import time
 from datetime import datetime
@@ -29,31 +30,23 @@ class JamInfo(BaseModel):
     endDate: datetime
     itchUrl: str = ""
     submitUrl: str = ""
-    submitClosesAt: datetime | None = None
     submitWindowDays: int | None = None
     hosted: bool = False
 
-
-class PickWindow(BaseModel):
-    days: int
-    oldDays: int
-    weekFrom: str
+    def submit_closes_at(self) -> datetime | None:
+        if not self.submitWindowDays:
+            return None
+        return self.endDate + timedelta(days=self.submitWindowDays)
 
 
 class ShopInfo(BaseModel):
-    cycles: dict[str, str]
-    pickWindow: PickWindow
+    cycles: dict[str, str] = {}
 
 
 class JamConfig(BaseModel):
     jam: JamInfo
-    betweenJams: bool
-    shop: ShopInfo
-
-    def pick_window_days(self, jam: str | None) -> int:
-        """Same rule as pickWindowDays in the site's shop.js."""
-        window = self.shop.pickWindow
-        return window.oldDays if jam and jam < window.weekFrom else window.days
+    betweenJams: bool = False
+    shop: ShopInfo = ShopInfo()
 
     def jam_name(self, jam: str) -> str:
         if jam == self.jam.month:
@@ -100,21 +93,11 @@ def et_date_text(at: datetime) -> str:
     return f"{local.strftime('%B').lower()} {local.day}"
 
 
-def pick_deadline(config: JamConfig, dm_sent_at: datetime, jam: str) -> datetime:
-    """Same as closesAtFor in the site's shop.js: the end of the ET day,
-    pickWindowDays after the prize DM."""
-    end = (dm_sent_at + timedelta(days=config.pick_window_days(jam))).astimezone(ET)
-    return end.replace(hour=23, minute=59, second=0, microsecond=0)
-
-
-JAM_FACTS = ("jam_dates", "theme", "form", "pick_window")
+JAM_FACTS = ("jam_dates", "theme", "form")
 
 
 def jam_facts_text(
-    config: JamConfig,
-    facts: list[str],
-    asker_jam: str | None = None,
-    now: datetime | None = None,
+    config: JamConfig, facts: list[str], now: datetime | None = None
 ) -> str | None:
     """Answer the requested facts from the live config, one line each.
     Returns None if none of them can be answered."""
@@ -150,31 +133,12 @@ def jam_facts_text(
             else:
                 lines.append(copy.theme_upcoming.format(start=et_text(jam.startDate)))
         elif fact == "form":
-            closes = jam.submitClosesAt
-            if jam.submitUrl and closes and now > closes:
-                lines.append(
-                    copy.form_closed.format(name=jam.displayName, closes=et_text(closes))
-                )
-            elif jam.submitUrl and closes:
+            closes = jam.submit_closes_at()
+            if jam.submitUrl and closes and now < closes:
                 lines.append(
                     copy.form_open.format(url=jam.submitUrl, closes=et_text(closes))
                 )
             elif not jam.submitUrl and jam.submitWindowDays and not ended:
                 lines.append(copy.form_not_open.format(days=jam.submitWindowDays))
-        elif fact == "pick_window":
-            window = config.shop.pickWindow
-            if asker_jam:
-                lines.append(
-                    copy.pick_window_yours.format(
-                        days=config.pick_window_days(asker_jam)
-                    )
-                )
-            else:
-                lines.append(
-                    copy.pick_window_rule.format(
-                        days=window.days,
-                        old_days=window.oldDays,
-                        week_from_name=config.jam_name(window.weekFrom),
-                    )
-                )
+            # After the window a form question is a normal ticket
     return "\n".join(lines) if lines else None
