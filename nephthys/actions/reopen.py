@@ -9,6 +9,7 @@ from nephthys.database.tables import Ticket
 from nephthys.database.tables import User
 from nephthys.errors.errors import PermissionDenied
 from nephthys.errors.errors import TicketNotClosedError
+from nephthys.events.help_bot import on_ticket_reopened
 from nephthys.events.message.send_backend_message import send_backend_message
 from nephthys.utils.env import env
 from nephthys.utils.logging import send_heartbeat
@@ -40,6 +41,8 @@ async def reopen(ticket: Ticket, reopened_by: User, client: AsyncWebClient):
             Ticket.closed_at: None,
         }
     ).where(Ticket.id == ticket.id)
+
+    await on_ticket_reopened(ticket)
 
     await reply_to_ticket(
         text=env.transcript.ticket_reopen.format(helper_slack_id=reopened_by.slack_id),

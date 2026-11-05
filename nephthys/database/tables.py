@@ -96,6 +96,14 @@ class Ticket(Table, tablename="Ticket"):
         on_update=OnUpdate.cascade,
     )
     created_at = Timestamptz(default=TimestamptzNow(), db_column_name="createdAt")
+    # Set only for tickets from the test help channel (JAMEGAM_TEST_CHANNEL).
+    # Null means the real help channel. Stats, leaderboards and the API only
+    # count tickets where this is null.
+    test_channel = Text(null=True, db_column_name="testChannel")
+
+
+# Use in every query that feeds stats, leaderboards, the app home or the API
+REAL_TICKETS = Ticket.test_channel.is_null()
 
 
 class QuestionTag(Table, tablename="QuestionTag"):
@@ -177,6 +185,36 @@ class Feedback(Table, tablename="Feedback"):
     created_at = Timestamptz(default=TimestamptzNow(), db_column_name="createdAt")
 
 
+class HelpBotTicket(Table, tablename="help_bot_ticket"):
+    """What the help bot did on a ticket, for the ticket post and the
+    24h cleanup of threads it resolved itself."""
+
+    id = Serial(primary_key=True, unique=True)
+    ticket = ForeignKey(
+        references=Ticket,
+        db_column_name="ticketId",
+        unique=True,
+        on_delete=OnDelete.cascade,
+    )
+    # faq | jam_facts | status | tracking | human | none
+    route = Text()
+    # The FAQ question it answered with, when route is faq
+    faq_question = Text(null=True, db_column_name="faqQuestion")
+    # One line about the asker's submission, shown on the ticket post
+    submission_summary = Text(null=True, db_column_name="submissionSummary")
+    # What the bot did, shown on the ticket post
+    action_summary = Text(null=True, db_column_name="actionSummary")
+    # The bot's answer message in the help thread (its buttons get updated)
+    answer_ts = Text(null=True, db_column_name="answerTs")
+    auto_resolved = Boolean(default=False, db_column_name="autoResolved")
+    still_need_help = Boolean(default=False, db_column_name="stillNeedHelp")
+    reopened = Boolean(default=False)
+    # When the bot deletes the thread it resolved, unless it's reopened first
+    delete_after = Timestamptz(null=True, default=None, db_column_name="deleteAfter")
+    deleted_at = Timestamptz(null=True, default=None, db_column_name="deletedAt")
+    created_at = Timestamptz(default=TimestamptzNow(), db_column_name="createdAt")
+
+
 # All tables must be listed here so that piccolo_app.py can find them.
 # This list is used for generating auto migrations.
 ALL_TABLES = [
@@ -189,4 +227,5 @@ ALL_TABLES = [
     TagsOnTickets,
     UserTagSubscription,
     Feedback,
+    HelpBotTicket,
 ]

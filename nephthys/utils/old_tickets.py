@@ -2,6 +2,7 @@ from datetime import datetime
 
 from nephthys.database.enums import TicketStatus
 from nephthys.database.enums import UserType
+from nephthys.database.tables import REAL_TICKETS
 from nephthys.database.tables import Ticket
 
 
@@ -17,6 +18,7 @@ async def get_unanswered_tickets(since: datetime | None = None) -> list[Ticket]:
         .where(
             (Ticket.status == TicketStatus.OPEN)
             & (Ticket.last_msg_by != UserType.HELPER)
+            & REAL_TICKETS
         )
         .order_by(Ticket.last_msg_at)
     )

@@ -1,5 +1,7 @@
 import logging
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Literal
 
 from aiohttp import ClientSession
@@ -11,6 +13,28 @@ from nephthys.transcripts import transcripts
 from nephthys.transcripts.transcript import Transcript
 
 load_dotenv(override=True)
+
+# True while handling an event, button or task that belongs to the test help
+# channel. A ContextVar so it follows the asyncio task handling that one event
+# and never leaks into others. Set with `test_channel_scope`.
+_test_scope: ContextVar[bool] = ContextVar("jamegam_test_scope", default=False)
+
+
+def set_test_scope(is_test: bool) -> None:
+    """Like test_channel_scope, for the rest of the current task. Only for
+    code that runs once per task, like the Slack middleware."""
+    _test_scope.set(is_test)
+
+
+@contextmanager
+def test_channel_scope(is_test: bool):
+    """Route env.slack_help_channel / env.slack_ticket_channel to the test
+    channels (or explicitly not) for the code inside the block."""
+    token = _test_scope.set(is_test)
+    try:
+        yield
+    finally:
+        _test_scope.reset(token)
 
 
 def get_environ_bool(name: str, default: bool) -> bool:
@@ -42,6 +66,46 @@ class Environment:
             "AI_TAG_MODEL", "google/gemini-3-flash-preview"
         )
 
+        # jame gam help bot features (FAQ answers, status lookups, live jam
+        # facts). Only used by transcripts that set `help_bot`, and only in the
+        # help channels listed in JAMEGAM_NEW_FLOW_CHANNELS.
+        self.jamegam_new_flow_channels = {
+            c.strip()
+            for c in os.environ.get("JAMEGAM_NEW_FLOW_CHANNELS", "").split(",")
+            if c.strip()
+        }
+        # A second, private help channel (and its own tickets channel) the bot
+        # also watches, for trying changes out. Its tickets are kept out of
+        # stats, leaderboards and the API.
+        self.jamegam_test_channel = os.environ.get("JAMEGAM_TEST_CHANNEL") or None
+        self.jamegam_test_ticket_channel = (
+            os.environ.get("JAMEGAM_TEST_TICKET_CHANNEL") or None
+        )
+        self.ai_jamegam_model = os.environ.get(
+            "AI_JAMEGAM_MODEL", "anthropic/claude-haiku-5.5"
+        )
+        self.ai_jamegam_min_confidence = float(
+            os.environ.get("AI_JAMEGAM_MIN_CONFIDENCE", "0.6")
+        )
+        # Read-only Airtable token for the jame gam base (submissions + orders)
+        self.jamegam_airtable_token = os.environ.get("JAMEGAM_AIRTABLE_TOKEN")
+        self.jamegam_airtable_base = os.environ.get(
+            "JAMEGAM_AIRTABLE_BASE", "apprhNJsC9D4nlFRB"
+        )
+        # Live jam config served by the jame gam site
+        self.jamegam_config_url = os.environ.get(
+            "JAMEGAM_CONFIG_URL", "https://jamegam.hackclub.com/api/jam"
+        )
+        # How long a bot-resolved status thread stays up unless it's reopened
+        self.jamegam_delete_after_minutes = int(
+            os.environ.get("JAMEGAM_DELETE_AFTER_MINUTES", str(24 * 60))
+        )
+        # Test channel only: "[as U123]" in a helper's question looks up U123's
+        # submissions instead of the asker's
+        self.jamegam_test_impersonation = get_environ_bool(
+            "JAMEGAM_TEST_IMPERSONATION", default=False
+        )
+
         self.otel_logs_url = os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
         self.otel_service_name = os.environ.get("OTEL_SERVICE_NAME", "nephthys")
         # Allows easily providing HTTP Basic Auth credentials formatted as user:pass
@@ -61,8 +125,8 @@ class Environment:
             "BASE_URL", "https://nephthys.hackclub.com"
         ).rstrip("/")
 
-        self.slack_help_channel = os.environ.get("SLACK_HELP_CHANNEL", "unset")
-        self.slack_ticket_channel = os.environ.get("SLACK_TICKET_CHANNEL", "unset")
+        self._slack_help_channel = os.environ.get("SLACK_HELP_CHANNEL", "unset")
+        self._slack_ticket_channel = os.environ.get("SLACK_TICKET_CHANNEL", "unset")
         self.slack_bts_channel = os.environ.get("SLACK_BTS_CHANNEL", "unset")
         self.slack_maintainer_id = os.environ.get("SLACK_MAINTAINER_ID", "unset")
         self.program = os.environ.get("PROGRAM", "summer_of_making")
@@ -133,6 +197,41 @@ class Environment:
 
         # Cache whether the user token has workspace admin privileges
         self._workspace_admin_available: bool | Literal["unchecked"] = "unchecked"
+
+    @property
+    def slack_help_channel(self) -> str:
+        """The help channel for whatever is being handled right now: the test
+        channel while handling something from it, else the real one."""
+        if _test_scope.get():
+            return self.jamegam_test_channel or self._slack_help_channel
+        return self._slack_help_channel
+
+    @property
+    def slack_ticket_channel(self) -> str:
+        """The tickets channel that goes with slack_help_channel."""
+        if _test_scope.get():
+            return self.jamegam_test_ticket_channel or self._slack_ticket_channel
+        return self._slack_ticket_channel
+
+    def help_channels(self) -> set[str]:
+        """Every help channel the bot answers in."""
+        channels = {self._slack_help_channel}
+        if self.jamegam_test_channel:
+            channels.add(self.jamegam_test_channel)
+        return channels
+
+    def is_test_channel(self, channel_id: str | None) -> bool:
+        return bool(channel_id) and channel_id in {
+            self.jamegam_test_channel,
+            self.jamegam_test_ticket_channel,
+        }
+
+    def new_flow_enabled(self) -> bool:
+        """Whether the help bot features are on for the current help channel."""
+        return (
+            self.transcript.help_bot is not None
+            and self.slack_help_channel in self.jamegam_new_flow_channels
+        )
 
     async def workspace_admin_available(self) -> bool:
         """Check if the provided user token has workspace admin privileges."""

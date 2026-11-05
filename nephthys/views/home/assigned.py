@@ -7,6 +7,7 @@ from blockkit import Home
 from blockkit import Section
 
 from nephthys.database.enums import TicketStatus
+from nephthys.database.tables import REAL_TICKETS
 from nephthys.database.tables import Ticket
 from nephthys.database.tables import User
 from nephthys.utils.ticket_methods import get_question_message_link
@@ -43,7 +44,9 @@ async def get_assigned_tickets_view(user: User | None, page: int = 1):
         )
 
     total = await Ticket.count().where(
-        (Ticket.assigned_to == user) & (Ticket.status != TicketStatus.CLOSED)
+        (Ticket.assigned_to == user)
+        & (Ticket.status != TicketStatus.CLOSED)
+        & REAL_TICKETS
     )
 
     if total == 0:
@@ -58,7 +61,11 @@ async def get_assigned_tickets_view(user: User | None, page: int = 1):
 
     tickets = (
         await Ticket.objects(Ticket.opened_by)
-        .where((Ticket.assigned_to == user) & (Ticket.status != TicketStatus.CLOSED))
+        .where(
+            (Ticket.assigned_to == user)
+            & (Ticket.status != TicketStatus.CLOSED)
+            & REAL_TICKETS
+        )
         .order_by(Ticket.created_at, ascending=True)
         .limit(TICKETS_PER_PAGE)
         .offset((page - 1) * TICKETS_PER_PAGE)

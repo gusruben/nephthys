@@ -7,6 +7,7 @@ import numpy as np
 from blockkit import Image
 
 from nephthys.database.enums import TicketStatus
+from nephthys.database.tables import REAL_TICKETS
 from nephthys.database.tables import Ticket
 from nephthys.utils.bucky import upload_file
 from nephthys.utils.env import env
@@ -36,11 +37,14 @@ async def generate_ticket_status_pie_image(tz: timezone | None = None) -> bytes:
         recently_closed_tickets = await Ticket.count().where(
             Ticket.status == TicketStatus.CLOSED,
             Ticket.closed_at >= one_week_ago,
+            REAL_TICKETS,
         )
         in_progress_tickets = await Ticket.count().where(
-            Ticket.status == TicketStatus.IN_PROGRESS
+            Ticket.status == TicketStatus.IN_PROGRESS, REAL_TICKETS
         )
-        open_tickets = await Ticket.count().where(Ticket.status == TicketStatus.OPEN)
+        open_tickets = await Ticket.count().where(
+            Ticket.status == TicketStatus.OPEN, REAL_TICKETS
+        )
 
     y = [recently_closed_tickets, in_progress_tickets, open_tickets]
     labels = ["Closed", "In Progress", "Open"]

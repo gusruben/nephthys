@@ -1,6 +1,7 @@
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from nephthys.database.tables import REAL_TICKETS
 from nephthys.database.tables import Ticket
 from nephthys.database.tables import User
 
@@ -12,9 +13,11 @@ async def user_stats(req: Request):
         return JSONResponse({"error": "user_not_found"}, status_code=404)
 
     closed_tickets = await Ticket.count().where(
-        (Ticket.closed_by == user.id) & (Ticket.opened_by != user.id)
+        (Ticket.closed_by == user.id) & (Ticket.opened_by != user.id) & REAL_TICKETS
     )
-    opened_tickets = await Ticket.count().where(Ticket.opened_by == user.id)
+    opened_tickets = await Ticket.count().where(
+        (Ticket.opened_by == user.id) & REAL_TICKETS
+    )
 
     return JSONResponse(
         {

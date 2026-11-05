@@ -13,6 +13,9 @@ async def channel_left(ack: AsyncAck, event: dict, client: AsyncWebClient):
 
     if channel_id == env.slack_help_channel:
         return
+    # Leaving the private test channels says nothing about being a helper
+    if env.is_test_channel(channel_id):
+        return
 
     await User.update({User.helper: False}).where(User.slack_id == user_id)
 

@@ -4,6 +4,7 @@ from statistics import fmean
 from typing import TypedDict
 
 from nephthys.database.enums import TicketStatus
+from nephthys.database.tables import REAL_TICKETS
 from nephthys.database.tables import Ticket
 from nephthys.database.tables import User
 from nephthys.utils.old_tickets import get_unanswered_tickets
@@ -80,13 +81,15 @@ def calculate_resolution_times(tickets: list[Ticket]) -> list[float]:
 
 
 async def calculate_overall_stats() -> OverallStatsResult:
-    tickets = await Ticket.objects() or []
+    tickets = await Ticket.objects().where(REAL_TICKETS) or []
 
     helpers = await User.objects().where(User.helper.eq(True))
     helpers_leaderboard: list[LeaderboardEntry] = []
     for user in helpers:
         # FIXME: This is an n+1 query that we should get rid of at some point
-        closed_count = await Ticket.count().where(Ticket.closed_by == user.id)
+        closed_count = await Ticket.count().where(
+            (Ticket.closed_by == user.id) & REAL_TICKETS
+        )
         if closed_count > 0:
             helpers_leaderboard.append({"user": user, "count": closed_count})
     helpers_leaderboard.sort(key=lambda entry: entry["count"], reverse=True)
@@ -184,7 +187,7 @@ class DailyStatsResult:
 async def calculate_daily_stats(
     start_time: datetime, end_time: datetime
 ) -> DailyStatsResult:
-    tickets = await Ticket.objects() or []
+    tickets = await Ticket.objects().where(REAL_TICKETS) or []
     tickets_created_today = [
         t for t in tickets if start_time <= t.created_at < end_time
     ]
@@ -197,6 +200,7 @@ async def calculate_daily_stats(
             (Ticket.closed_by == user.id)
             & (Ticket.closed_at >= start_time)
             & (Ticket.closed_at < end_time)
+            & REAL_TICKETS
         )
         daily_closed_count = len(closed_tickets)
         if daily_closed_count > 0:

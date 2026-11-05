@@ -70,6 +70,9 @@ class ReplyMacro(Macro):
             client=env.slack_client,
         )
 
+        await self.resolve_after_reply(ticket, helper)
+
+    async def resolve_after_reply(self, ticket: Ticket, helper: User) -> None:
         if self.resolve_ticket:
             await resolve(
                 ts=ticket.msg_ts,

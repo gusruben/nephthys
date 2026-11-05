@@ -5,6 +5,7 @@ from starlette.responses import JSONResponse
 
 from nephthys.api.ticket import ticket_to_json
 from nephthys.database.enums import TicketStatus
+from nephthys.database.tables import REAL_TICKETS
 from nephthys.database.tables import TeamTag
 from nephthys.database.tables import Ticket
 
@@ -57,6 +58,7 @@ async def tickets_list(req: Request):
         *Ticket.reopened_by._.all_columns(),
         Ticket.team_tags(TeamTag.name),
     ).output(nested=True)
+    query = query.where(REAL_TICKETS)
 
     if filter_status:
         query = query.where(Ticket.status == filter_status)

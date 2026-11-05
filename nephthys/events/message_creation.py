@@ -15,6 +15,7 @@ from nephthys.database.tables import BotMessage
 from nephthys.database.tables import CategoryTag
 from nephthys.database.tables import Ticket
 from nephthys.database.tables import User
+from nephthys.events.help_bot import run_help_bot
 from nephthys.events.message.send_backend_message import backend_message_blocks
 from nephthys.events.message.send_backend_message import backend_message_fallback_text
 from nephthys.events.message.send_backend_message import send_backend_message
@@ -236,6 +237,9 @@ async def handle_new_question(
             assigned_at=None,
             closed_at=None,
             reopened_at=None,
+            test_channel=(
+                event["channel"] if env.is_test_channel(event["channel"]) else None
+            ),
         )
         if category_tag_id:
             ticket.category_tag = category_tag_id
@@ -266,6 +270,10 @@ async def handle_new_question(
             f"Top-level message for thread_ts={event['ts']} has been deleted. Cleaning up and deleting ticket_id={ticket.id}"
         )
         await delete_and_clean_up_ticket(ticket)
+        return
+
+    async with perf_timer("Help bot"):
+        await run_help_bot(ticket, text, author_id, client)
 
 
 async def send_user_facing_message(

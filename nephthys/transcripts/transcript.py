@@ -3,6 +3,83 @@ from pydantic import Field
 from pydantic import model_validator
 
 
+class HelpBotCopy(BaseModel):
+    """Every user-facing string the help bot features use (FAQ answers, status
+    lookups, tracking, live jam facts and the extra ticket post lines).
+
+    Only set for programs that turn those features on. Placeholders in braces
+    are filled in with str.format, so every one listed here must be passed.
+    """
+
+    class Config:
+        extra = "forbid"
+
+    # FAQ answers ({url}, {question}, {answer})
+    faq_answer: str
+    faq_answered_button: str
+    faq_still_need_help_button: str
+    faq_still_need_help_reply: str
+    # Replaces the buttons once clicked ({user_id})
+    faq_still_need_help_context: str
+    buttons_not_yours: str
+
+    # `?faq <topic>` ({url}, {question}, {answer}; (user) like other macros)
+    faq_topic_macro: str
+    # Ephemeral to the helper ({topic}, {questions})
+    faq_topic_not_found: str
+
+    # Live jam facts ({name}, {start}, {end}, {itch_url}, {url}, {closes}, {days}, ...)
+    jam_current: str
+    jam_next: str
+    jam_ended: str
+    theme_upcoming: str
+    theme_out: str
+    form_open: str
+    form_not_open: str
+    form_closed: str
+    pick_window_yours: str
+    pick_window_rule: str
+
+    # Status lookups
+    status_intro_one: str
+    status_intro_many: str
+    status_line_many: str
+    status_unreviewed: str
+    status_unreviewed_ahead: str
+    status_approved_checking: str
+    status_approved_ready: str
+    status_approved_queued: str
+    status_approved_dm_open: str
+    status_approved_dm_open_no_deadline: str
+    status_approved_ordered: str
+    order_not_fulfilled: str
+    order_processing: str
+    order_fulfilled: str
+    order_held_idv: str
+    status_footer: str
+    reopen_button: str
+
+    # Tracking
+    tracking_info_public: str
+    tracking_info_private: str
+    tracking_not_shipped: str
+    tracking_pinged_public: str
+    tracking_ping_team: str
+
+    # Extra lines on the ticket post in the tickets channel (helpers only)
+    ticket_post_submission: str
+    ticket_post_no_submission: str
+    ticket_post_bot: str
+    ticket_post_reopened: str
+    ticket_post_still_need_help: str
+    # What the bot did, keyed by action ({question}, {when}, {fulfiller}, {reason})
+    ticket_post_actions: dict[str, str]
+    # Why it left a ticket for a human, keyed by reason ({note}, ...)
+    ticket_post_reasons: dict[str, str]
+    # One submission's state, keyed by state ({date}, {note}, {status})
+    ticket_post_states: dict[str, str]
+
+
 class Transcript(BaseModel):
     """Class to hold all the transcript messages and links used in the bot."""
 
@@ -43,6 +120,16 @@ class Transcript(BaseModel):
     faq_link: str = Field(
         default="https://hackclub.slack.com/docs/T0266FRGM/F093F8D7EE9",
         description="FAQ link URL",
+    )
+
+    faq_canvas_id: str | None = Field(
+        default=None,
+        description="File ID of the FAQ canvas. When set, the bot reads the canvas every 15 minutes so it can quote answers from it",
+    )
+
+    help_bot: HelpBotCopy | None = Field(
+        default=None,
+        description="Copy for the help bot features (FAQ answers, status lookups, tracking, live jam facts). Leave unset to keep them off",
     )
 
     summer_help_channel: str = Field(

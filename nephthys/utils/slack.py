@@ -32,15 +32,42 @@ from nephthys.events.app_home_opened import on_app_home_opened
 from nephthys.events.app_home_opened import open_app_home
 from nephthys.events.channel_join import channel_join
 from nephthys.events.channel_left import channel_left
+from nephthys.events.help_bot import ANSWERED_ACTION
+from nephthys.events.help_bot import handle_answered_button
+from nephthys.events.help_bot import handle_need_help_button
+from nephthys.events.help_bot import NEED_HELP_ACTION
 from nephthys.events.message_creation import on_message
 from nephthys.events.message_deletion import on_message_deletion
 from nephthys.options.category_tags import get_category_tags
 from nephthys.options.team_tags import get_team_tags
 from nephthys.utils.env import env
+from nephthys.utils.env import set_test_scope
 from nephthys.utils.performance import perf_timer
 from nephthys.views.home import AppHomeView
 
 app = AsyncApp(token=env.slack_bot_token, signing_secret=env.slack_signing_secret)
+
+
+def _request_channel(body: Dict[str, Any]) -> str | None:
+    """The channel an incoming event, button click or menu belongs to."""
+    event = body.get("event") or {}
+    return (
+        event.get("channel")
+        or (body.get("channel") or {}).get("id")
+        or (body.get("container") or {}).get("channel_id")
+    )
+
+
+@app.middleware
+async def route_test_channel(body: Dict[str, Any], next):
+    """Anything that comes from the test help or tickets channel is handled
+    against the test channels.
+
+    Bolt runs listeners after the global middleware has returned, in a task
+    created from this request's context, so the flag is set here (not in a
+    `with` block) and set every time, so it never carries over."""
+    set_test_scope(env.is_test_channel(_request_channel(body)))
+    await next()
 
 
 @app.event("message")
@@ -51,7 +78,7 @@ async def handle_message(event: Dict[str, Any], client: AsyncWebClient):
         and event["message"].get("subtype") == "tombstone"
     ) or event.get("subtype") == "message_deleted"
 
-    if event["channel"] == env.slack_help_channel:
+    if event["channel"] in env.help_channels():
         async with perf_timer("Processing message event (total time)"):
             if is_message_deletion:
                 await on_message_deletion(event, client)
@@ -67,6 +94,22 @@ async def handle_mark_resolved_button(
     value = body["actions"][0]["value"]
     resolver = body["user"]["id"]
     await resolve(value, resolver, client)
+
+
+@app.action(ANSWERED_ACTION)
+async def handle_help_bot_answered(
+    ack: AsyncAck, body: Dict[str, Any], client: AsyncWebClient
+):
+    await ack()
+    await handle_answered_button(body, client)
+
+
+@app.action(NEED_HELP_ACTION)
+async def handle_help_bot_need_help(
+    ack: AsyncAck, body: Dict[str, Any], client: AsyncWebClient
+):
+    await ack()
+    await handle_need_help_button(body, client)
 
 
 @app.options("tag-list")  # compat with old backend msgs

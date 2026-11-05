@@ -5,6 +5,13 @@ from nephthys.database.tables import User
 from nephthys.utils.env import env
 
 
+async def help_bot_context_lines(msg_ts: str) -> list[str]:
+    # Imported here: events.help_bot imports this module
+    from nephthys.events.help_bot import help_bot_context_lines as lines
+
+    return await lines(msg_ts)
+
+
 async def backend_message_blocks(
     author_user_id: str,
     msg_ts: str,
@@ -47,7 +54,21 @@ async def backend_message_blocks(
     if initial_option:
         category_tags_dropdown["element"]["initial_option"] = initial_option
 
-    return [
+    help_bot_lines = (
+        await help_bot_context_lines(msg_ts) if env.new_flow_enabled() else []
+    )
+    help_bot_blocks = (
+        [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "\n".join(help_bot_lines)},
+            }
+        ]
+        if help_bot_lines
+        else []
+    )
+
+    return help_bot_blocks + [
         category_tags_dropdown,
         {
             "type": "input",

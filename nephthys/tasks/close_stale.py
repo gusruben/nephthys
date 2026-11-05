@@ -8,6 +8,7 @@ from slack_sdk.errors import SlackApiError
 
 from nephthys.actions.resolve import resolve
 from nephthys.database.enums import TicketStatus
+from nephthys.database.tables import REAL_TICKETS
 from nephthys.database.tables import Ticket
 from nephthys.database.tables import User
 from nephthys.utils.env import env
@@ -103,7 +104,7 @@ async def close_stale_tickets():
 
     try:
         tickets = await Ticket.objects(Ticket.opened_by, Ticket.assigned_to).where(
-            Ticket.status != TicketStatus.CLOSED
+            (Ticket.status != TicketStatus.CLOSED) & REAL_TICKETS
         )
         stale = 0
 

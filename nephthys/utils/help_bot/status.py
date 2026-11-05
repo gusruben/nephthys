@@ -1,0 +1,375 @@
+"""Turns someone's Airtable rows into a status answer, or decides a human
+should handle it.
+
+Pure functions over the rows (no Slack, no network) so every branch has a
+unit test. The rules come from the jame gam pipeline (jamegam CLAUDE.md, ari's
+bridge.ts and its prize DM tab):
+
+- Approved and "Prize Only" both open the shop and both wait on Augie's
+  spotcheck before the prize DM. To the submitter both are just "approved".
+  An old Prize Only row whose DM already went out is final.
+- "No Prize" is a rejection as far as the submitter knows.
+- Rejections are never posted in a thread, and Pending / Needs Augie /
+  Stickers Only / anything unexpected goes to a human.
+"""
+
+import re
+from dataclasses import dataclass
+from dataclasses import field
+from datetime import datetime
+
+from nephthys.utils.env import env
+from nephthys.utils.help_bot.airtable import Order
+from nephthys.utils.help_bot.airtable import Submission
+from nephthys.utils.help_bot.jam_config import et_date_text
+from nephthys.utils.help_bot.jam_config import et_text
+from nephthys.utils.help_bot.jam_config import JamConfig
+from nephthys.utils.help_bot.jam_config import pick_deadline
+
+SHOP_STATUSES = {"Approved", "Prize Only"}
+REJECTED_STATUSES = {"Rejected", "No Prize"}
+WITHDRAWN = "Withdrawn"
+# States the bot can tell the asker about without a human
+CLEAR_STATES = {
+    "unreviewed",
+    "approved_checking",
+    "approved_ready",
+    "approved_queued",
+    "approved_dm_sent",
+}
+URL = re.compile(r"https?://\S+")
+# Something that looks like a carrier tracking number
+TRACKING_NUMBER = re.compile(r"\b(?=[A-Z0-9]*\d)[A-Z0-9]{10,34}\b")
+# Prizes that never ship in a box: codes, gift cards, licenses, grants
+DIGITAL_HINTS = re.compile(
+    r"\b(code|codes|gift ?card|license|licence|key|steam|email|e-mail|inbox|grant|hcb|dms?|direct message)\b",
+    re.IGNORECASE,
+)
+
+
+@dataclass
+class Outcome:
+    """What the bot does with a status or tracking question.
+
+    `answer` is the public thread reply; when it is None the ticket is left
+    for a human. `resolve` means the bot resolves it (no helper credit) and the
+    thread deletes itself later unless reopened."""
+
+    summary: str
+    action: str
+    reason: str | None = None
+    answer: str | None = None
+    private: str | None = None
+    resolve: bool = False
+    ping_order: Order | None = None
+    extra: dict = field(default_factory=dict)
+
+
+def _copy():
+    copy = env.transcript.help_bot
+    if not copy:
+        raise RuntimeError("help_bot copy is not configured for this program")
+    return copy
+
+
+def row_state(row: Submission) -> str:
+    s = row.status
+    if not s:
+        return "unreviewed"
+    if s in SHOP_STATUSES:
+        if row.dm_sent_at:
+            return "approved_dm_sent"
+        if row.dm_queued:
+            return "approved_queued"
+        if row.spotchecked:
+            return "approved_ready"
+        return "approved_checking"
+    return {
+        "Pending": "pending",
+        "Needs Augie": "needs_augie",
+        "Rejected": "rejected",
+        "No Prize": "no_prize",
+        "Stickers Only": "stickers_only",
+        WITHDRAWN: "withdrawn",
+    }.get(s, "other")
+
+
+def _note(row: Submission) -> str:
+    """The latest line of the row's notes, short enough for one line."""
+    lines = [line.strip() for line in row.notes.splitlines() if line.strip()]
+    note = lines[-1] if lines else "none"
+    return note if len(note) <= 200 else note[:197] + "..."
+
+
+def state_label(row: Submission) -> str:
+    copy = _copy()
+    state = row_state(row)
+    return copy.ticket_post_states[state].format(
+        date=et_date_text(row.dm_sent_at) if row.dm_sent_at else "",
+        note=_note(row),
+        status=row.status,
+    )
+
+
+def _group_key(row: Submission) -> str:
+    return row.code_url or row.title.lower()
+
+
+def relevant_rows(rows: list[Submission]) -> list[Submission]:
+    """Their rows from the newest jam they submitted to, without withdrawn
+    copies, and with exact duplicates (same game, same state) folded."""
+    live = [r for r in rows if r.status != WITHDRAWN]
+    if not live:
+        return []
+    newest = max(r.jam for r in live)
+    seen: set[tuple[str, str]] = set()
+    out = []
+    for row in sorted(live, key=lambda r: r.created_at):
+        if row.jam != newest:
+            continue
+        key = (_group_key(row), row_state(row))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
+def has_conflict(rows: list[Submission]) -> bool:
+    """Two rows for the same game that say different things."""
+    states: dict[str, set[str]] = {}
+    for row in rows:
+        states.setdefault(_group_key(row), set()).add(row_state(row))
+    return any(len(s) > 1 for s in states.values())
+
+
+def submission_summary(
+    rows: list[Submission], orders: list[Order], config: JamConfig | None
+) -> str:
+    """The ticket post's one line about this person."""
+    copy = _copy()
+    shown = relevant_rows(rows) or [r for r in rows]
+    if not shown:
+        return copy.ticket_post_no_submission
+    jam = max(r.jam for r in shown)
+    jam_name = config.jam_name(jam) if config else jam
+    parts = [f"*{r.title}* {state_label(r)}" for r in shown if r.jam == jam]
+    for order in orders:
+        if order.jam == jam:
+            parts.append(
+                copy.ticket_post_states["order"].format(
+                    prize=order.prize, status=order.status
+                )
+            )
+    return copy.ticket_post_submission.format(
+        summary=f"{jam_name} ({jam}): " + "; ".join(parts)
+    )
+
+
+def _when(delete_after: datetime) -> str:
+    return et_text(delete_after)
+
+
+def _human(summary: str, reason: str, **kwargs) -> Outcome:
+    copy = _copy()
+    text = copy.ticket_post_reasons[reason].format(**kwargs)
+    return Outcome(
+        summary=summary,
+        action=copy.ticket_post_actions["human"].format(reason=text),
+        reason=reason,
+    )
+
+
+def _order_line(order: Order) -> str | None:
+    copy = _copy()
+    if order.status == "not fulfilled":
+        return copy.order_not_fulfilled
+    if order.status == "processing":
+        return copy.order_processing
+    if order.status == "held for id verification":
+        return copy.order_held_idv
+    if order.status == "fulfilled":
+        sent = order.fulfilled_dm_sent_at
+        return copy.order_fulfilled.format(date=_order_sent(order))
+    return None
+
+
+def _status_line(
+    row: Submission,
+    orders: list[Order],
+    config: JamConfig | None,
+    queue_ahead: int | None,
+    now: datetime,
+) -> str | None:
+    """The asker-facing line for one row, or None if a human should answer."""
+    copy = _copy()
+    state = row_state(row)
+    if state == "unreviewed":
+        ahead = (
+            copy.status_unreviewed_ahead.format(count=queue_ahead)
+            if queue_ahead
+            else ""
+        )
+        return copy.status_unreviewed.format(ahead=ahead)
+    if state == "approved_checking":
+        return copy.status_approved_checking
+    if state == "approved_ready":
+        return copy.status_approved_ready
+    if state == "approved_queued":
+        return copy.status_approved_queued
+    if state == "approved_dm_sent":
+        order = next((o for o in orders if o.jam == row.jam), None)
+        if order:
+            line = _order_line(order)
+            if not line:
+                return None
+            return copy.status_approved_ordered.format(prize=order.prize, order=line)
+        assert row.dm_sent_at
+        sent = et_date_text(row.dm_sent_at)
+        if not config:
+            return copy.status_approved_dm_open_no_deadline.format(sent=sent)
+        deadline = pick_deadline(config, row.dm_sent_at, row.jam)
+        if now > deadline:
+            return None
+        return copy.status_approved_dm_open.format(
+            sent=sent, deadline=et_text(deadline)
+        )
+    return None
+
+
+def status_outcome(
+    rows: list[Submission],
+    orders: list[Order],
+    config: JamConfig | None,
+    queue_ahead: int | None,
+    delete_after: datetime,
+    now: datetime,
+) -> Outcome:
+    copy = _copy()
+    summary = submission_summary(rows, orders, config)
+    if not rows:
+        return _human(summary, "no_rows")
+    shown = relevant_rows(rows)
+    if not shown:
+        return _human(summary, "only_withdrawn")
+    if has_conflict(shown):
+        return _human(summary, "conflict")
+    if any(row_state(r) not in CLEAR_STATES for r in shown):
+        return _human(summary, "unclear")
+
+    lines: list[tuple[Submission, str]] = []
+    for row in shown:
+        line = _status_line(row, orders, config, queue_ahead, now)
+        if line is None:
+            if row_state(row) == "approved_dm_sent" and not any(
+                o.jam == row.jam for o in orders
+            ):
+                return _human(summary, "window_closed")
+            return _human(summary, "order_unclear")
+        lines.append((row, line))
+
+    if len(lines) == 1:
+        row, line = lines[0]
+        body = copy.status_intro_one.format(title=row.title, line=line)
+    else:
+        body = copy.status_intro_many.format(
+            lines="\n".join(
+                copy.status_line_many.format(title=row.title, line=line)
+                for row, line in lines
+            )
+        )
+    return Outcome(
+        summary=summary,
+        action=copy.ticket_post_actions["status"].format(when=_when(delete_after)),
+        answer=body,
+        resolve=True,
+    )
+
+
+def has_tracking(order: Order) -> bool:
+    """Whether the fulfillment note gives them a way to track or receive it:
+    a link or tracking number, or a digital prize that was sent another way."""
+    info = order.info
+    if not info:
+        return False
+    if URL.search(info) or TRACKING_NUMBER.search(info):
+        return True
+    # "will send tracking when i have it" / "dm me for the tracking link"
+    if re.search(r"\btracking\b", info, re.IGNORECASE):
+        return False
+    return order.prize_type == "indie games" or bool(DIGITAL_HINTS.search(info))
+
+
+def _order_sent(order: Order) -> str:
+    sent = order.fulfilled_dm_sent_at
+    return et_date_text(sent) if sent else "a while back"
+
+
+def tracking_outcome(
+    rows: list[Submission],
+    orders: list[Order],
+    config: JamConfig | None,
+    delete_after: datetime,
+) -> Outcome:
+    """Answer for every order from their newest jams (someone asking about
+    an older jam's prize usually has a newer order too)."""
+    copy = _copy()
+    summary = submission_summary(rows, orders, config)
+    if not orders:
+        return _human(summary, "no_order")
+    newest = sorted({o.jam for o in orders}, reverse=True)[:3]
+    recent = [o for o in orders if o.jam in newest and o.status != "canceled"]
+    if not recent:
+        return _human(summary, "order_unclear")
+
+    public: list[str] = []
+    private: list[str] = []
+    to_ping: Order | None = None
+    for order in sorted(recent, key=lambda o: o.jam, reverse=True):
+        if order.status in {"not fulfilled", "processing", "held for id verification"}:
+            public.append(
+                copy.tracking_not_shipped.format(
+                    prize=order.prize, order=_order_line(order)
+                )
+            )
+        elif order.status != "fulfilled":
+            return _human(summary, "order_unclear")
+        elif has_tracking(order):
+            public.append(
+                copy.tracking_info_public.format(
+                    prize=order.prize, date=_order_sent(order)
+                )
+            )
+            private.append(
+                copy.tracking_info_private.format(
+                    prize=order.prize, info=order.info.replace("\n", "\n>")
+                )
+            )
+        else:
+            if to_ping or not (order.fulfilled_by_email or order.fulfilled_by_name):
+                return _human(summary, "no_tracking_contact")
+            to_ping = order
+            public.append(
+                copy.tracking_pinged_public.format(
+                    prize=order.prize, date=_order_sent(order)
+                )
+            )
+
+    answer = "\n".join(public)
+    if to_ping:
+        return Outcome(
+            summary=summary,
+            action="",  # filled in once we know who got pinged
+            answer=answer,
+            private="\n\n".join(private) or None,
+            ping_order=to_ping,
+            extra={"sent": _order_sent(to_ping)},
+        )
+    action = "tracking_info" if private else "status"
+    return Outcome(
+        summary=summary,
+        action=copy.ticket_post_actions[action].format(when=_when(delete_after)),
+        answer=answer,
+        private="\n\n".join(private) or None,
+        resolve=True,
+    )

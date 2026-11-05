@@ -3,6 +3,7 @@ from typing import Any
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from nephthys.database.tables import REAL_TICKETS
 from nephthys.database.tables import TeamTag
 from nephthys.database.tables import Ticket
 
@@ -58,7 +59,7 @@ async def ticket_info(req: Request):
             Ticket.team_tags(TeamTag.name),
         )
         .output(nested=True)
-        .where(Ticket.id == ticket_id)
+        .where((Ticket.id == ticket_id) & REAL_TICKETS)
         .first()
     )
 

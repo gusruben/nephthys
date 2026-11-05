@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from nephthys.database.enums import TicketStatus
 from nephthys.database.tables import CategoryTag
+from nephthys.database.tables import REAL_TICKETS
 from nephthys.database.tables import TagsOnTickets
 from nephthys.database.tables import Ticket
 from nephthys.utils.env import env
@@ -47,6 +48,7 @@ async def send_fulfillment_reminder():
             (Ticket.category_tag == tag.id)
             & (Ticket.status.is_in([TicketStatus.OPEN, TicketStatus.IN_PROGRESS]))
             & (Ticket.created_at >= twenty_four_hours_ago)
+            & REAL_TICKETS
         )
 
         msg_header = f"oh hi <@{target_slack_id}>! i found some fulfillment tickets for you! :rac_cute:"
