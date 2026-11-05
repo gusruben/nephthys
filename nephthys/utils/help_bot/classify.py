@@ -63,7 +63,7 @@ Pick exactly one route:
   A question about how the process works or whether something is normal ("do you tell us either way", "how long does review take", "is it normal that my teammate got a dm and i didn't") is "faq" when an FAQ answers it, even if they mention their own game.
 - "tracking": the asker wants to know where THEIR OWN prize is: tracking number, has it shipped or been sent, when will it arrive, they haven't received it. This includes digital prizes (game keys, codes, gift cards). If they name the prize, return it in "item". Stickers are not a prize order: sticker questions are "human".
 - "jam_facts": a question about the current or next jam's facts. Also return which facts in "facts":
-  - jam_dates: which jam is next or running, when it starts or ends, how often jams happen, whether the jam's itch page is up, and whether they can still join or start (joining late is not a late submission).
+  - jam_dates: which jam is next or running, when it starts or ends, how often jams happen, whether the jam's itch page is up, and whether they can still join or start (joining late is not a late submission). Only the current or next jam: a question about a past jam's dates is "human".
   - theme: ONLY when the post directly asks what the theme is, or when or where the theme comes out. If the post mentions the theme but asks something else (does my game have to fit it, is my idea ok for it, can i ignore it, what does it mean), do not use theme; that post is "human" (or "faq" if an FAQ answers it).
   - form: whether the jame gam submission form is open yet, or when it closes.
   How many days they get to pick a prize, or when the shop closes, is "faq", not jam_facts.

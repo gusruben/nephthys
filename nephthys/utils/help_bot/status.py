@@ -250,7 +250,12 @@ def matches_item(order: Order, item: str) -> bool:
     """Whether the order is the prize they named ("blahaj" matches "blahaj
     plushie", "hack club shirt" matches "hack club t-shirt")."""
     asked, have = _words(item), _words(order.prize)
-    return bool(asked & have)
+    # "plushie" is a "plush", "controllers" a "controller"
+    return any(
+        a == h or (min(len(a), len(h)) >= 4 and (a.startswith(h) or h.startswith(a)))
+        for a in asked
+        for h in have
+    )
 
 
 def has_tracking(order: Order) -> bool:

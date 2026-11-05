@@ -341,6 +341,14 @@ class TrackingTests(unittest.TestCase):
         order(id="c", jam="2026-09", prize="hack club t-shirt", status="not fulfilled"),
     ]
 
+    def test_prefix_match(self):
+        from nephthys.utils.help_bot.status import matches_item
+
+        self.assertTrue(matches_item(order(prize="godot plush"), "plushie"))
+        self.assertTrue(matches_item(order(prize="8bitdo controller"), "controllers"))
+        self.assertFalse(matches_item(order(prize="kodak charmera"), "car"))
+        self.assertFalse(matches_item(order(prize="hack club hoodie"), "t-shirt"))
+
     def test_newest_jam_by_default(self):
         out = tracking_outcome([row()], self.ORDERS, config(), DELETE_AFTER)
         self.assertTrue(out.resolve)
@@ -352,6 +360,7 @@ class TrackingTests(unittest.TestCase):
             ("blåhaj", "blahaj plushie"),
             ("hack club shirt", "hack club t-shirt"),
             ("charmera", "kodak charmera"),
+            ("plushie", "blahaj plushie"),
         ]:
             out = tracking_outcome(
                 [row()], self.ORDERS, config(), DELETE_AFTER, item=item
