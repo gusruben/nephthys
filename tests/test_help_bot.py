@@ -403,6 +403,48 @@ class JamFactsTests(unittest.TestCase):
         self.assertIsNone(jam_facts_text(config(), ["pick_window"], now=NOW))
 
 
+class CaseRunGuardTests(unittest.TestCase):
+    """Rules tightened after the 330-case run (claude-workspace/test-gen)."""
+
+    def guard(self, text, route, **kw):
+        return apply_guards(text, Classification(route=route, confidence=0.9, **kw))
+
+    def test_joining_late_is_not_a_late_submission(self):
+        for text in ["am i too late to join this thing?", "is it too late to start"]:
+            out = self.guard(text, "jam_facts", facts=["jam_dates"])
+            self.assertEqual(out.route, "jam_facts", text)
+        self.assertEqual(
+            self.guard(
+                "i submitted too late, does it still count", "faq", faq=None
+            ).route,
+            "human",
+        )
+
+    def test_missed_pick_window_is_human(self):
+        for text in [
+            "i think the shop already closed for me and i never picked anything",
+            "i missed the pick window, can i still choose",
+        ]:
+            self.assertEqual(self.guard(text, "faq").route, "human", text)
+
+    def test_delivered_but_missing_is_human(self):
+        for text in [
+            "tracking says delivered but i never got anything",
+            "it's been marked as delivered for a week now and theres nothing here",
+            "my order shows 'fulfilled' but it literally never showed up",
+            "my blahaj arrived damaged",
+        ]:
+            self.assertEqual(self.guard(text, "tracking").route, "human", text)
+
+    def test_plain_tracking_questions_pass(self):
+        for text in [
+            "has my prize shipped yet? still nothing",
+            "my order shows fulfilled, can i get the tracking?",
+            "it's been 3 weeks and my blahaj never arrived",
+        ]:
+            self.assertEqual(self.guard(text, "tracking").route, "tracking", text)
+
+
 class ThemeStrictnessTests(unittest.TestCase):
     DIRECT = [
         "what's the theme?",
@@ -413,6 +455,11 @@ class ThemeStrictnessTests(unittest.TestCase):
         "is the theme out yet",
         "theme?",
         "when do we get the theme",
+        "whats the theme for this jam",
+        "has the theme dropped yet or we still waiting",
+        "whats this jams theme, i cant find it posted anywhere",
+        "when do we find out the theme, same moment the jam starts?",
+        "people keep talking about a theme reveal, has it happened",
     ]
     NOT_DIRECT = [
         "does my game have to fit the theme?",
@@ -422,13 +469,16 @@ class ThemeStrictnessTests(unittest.TestCase):
         "Can you make any game you want for the next Jam, or does it have to be about a specific theme?",
         "Guys can you explain the theme and an example project",
         "my game kinda drifted from the theme is that ok",
+        "my teammates hate the theme, can we just reskin an old project once it drops",
+        "Will the project get rejected if it doesn't fully match the theme?",
+        "i picked a THEME and after i make a game how can i send it",
     ]
 
     def test_direct_theme_questions(self):
         for text in self.DIRECT:
-            self.assertRegex(text, DIRECT_THEME)
+            self.assertTrue(DIRECT_THEME.search(text), text)
         for text in self.NOT_DIRECT:
-            self.assertNotRegex(text, DIRECT_THEME)
+            self.assertFalse(DIRECT_THEME.search(text), text)
 
     def test_theme_mentions_go_to_a_human(self):
         for text in self.NOT_DIRECT:

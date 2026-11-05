@@ -22,9 +22,20 @@ ROUTES = ("status", "tracking", "jam_facts", "faq", "human", "none")
 # Matched on top of the model's own "human" route, as a backstop.
 JUDGMENT_CALL = re.compile(
     r"\b(appeal|re-?review|second chance|why (was|did|got) (i|my|it|mine)\b.*\breject"
-    r"|(got|was|been|i'?m|am) rejected|too late|late (submission|submit)|submit(ted)? late|missed (the|my)? ?(deadline|form|submission)"
+    r"|(got|was|been|i'?m|am) rejected|too late to submit|late (submission|submit)|submit(ted)? (too )?late|missed (the|my)? ?(deadline|form|submission)"
     r"|extension|exception|customs|duties|import tax|change (my|the) (order|prize|address|size|shipping)"
-    r"|wrong (address|size|prize|item)|cancel (my|the)? ?order|refund)",
+    r"|wrong (address|size|prize|item)|cancel (my|the)? ?order|refund"
+    # A missed prize pick window is an exception request too
+    r"|missed (the |my )?(pick|picking|shop|window|chance to pick)|never (got to )?pick(ed)?|shop (already )?closed (for me|before)"
+    r"|pick(ing)? window (closed|ended|passed|is over))",
+    re.IGNORECASE,
+)
+
+# Something went wrong with an order that was sent: a person has to look,
+# even though the order has tracking the bot could share
+ORDER_PROBLEM = re.compile(
+    r"\b(delivered|fulfilled|shipped)\b[^.?!]{0,60}?\b(never|didn'?t|not|nothing|hasn'?t)\b[^.?!]{0,30}?\b(got|get|arrived|arrive|showed|show|here|came|come|received)\b"
+    r"|\bdelivered but\b|\bstolen\b|\blost in the mail\b|\bgot lost\b|\bdamaged\b|\barrived broken\b|\bwrong (item|prize|size|color|colour|one)\b",
     re.IGNORECASE,
 )
 
@@ -48,15 +59,16 @@ class Classification:
 SYSTEM_PROMPT = """You triage new posts in the help channel for jame gam, Hack Club's monthly game jam for teenagers. A bot answers some posts by itself; you decide which kind each post is.
 
 Pick exactly one route:
-- "status": the asker asks or complains about THEIR OWN submission: has it been reviewed, was it approved, when will it be reviewed, where is their approval or prize DM, they still haven't heard anything, their teammate got a DM but they didn't. Pick this over "faq" whenever the post is about their own game, DM or prize, even if an FAQ question is related.
-- "tracking": the asker wants to know where THEIR OWN prize order is: tracking number, has it shipped, when will it arrive, they haven't received it. If they name the prize, return it in "item". Stickers are not a prize order: sticker questions are "human".
+- "status": the asker asks or complains about where THEIR OWN submission stands: has mine been reviewed, was mine approved, where is my approval or prize DM, i still haven't heard anything about my game. Use it when they want their own state looked up.
+  A question about how the process works or whether something is normal ("do you tell us either way", "how long does review take", "is it normal that my teammate got a dm and i didn't") is "faq" when an FAQ answers it, even if they mention their own game.
+- "tracking": the asker wants to know where THEIR OWN prize is: tracking number, has it shipped or been sent, when will it arrive, they haven't received it. This includes digital prizes (game keys, codes, gift cards). If they name the prize, return it in "item". Stickers are not a prize order: sticker questions are "human".
 - "jam_facts": a question about the current or next jam's facts. Also return which facts in "facts":
-  - jam_dates: which jam is next or running, when it starts or ends, how often jams happen.
+  - jam_dates: which jam is next or running, when it starts or ends, how often jams happen, whether the jam's itch page is up, and whether they can still join or start (joining late is not a late submission).
   - theme: ONLY when the post directly asks what the theme is, or when or where the theme comes out. If the post mentions the theme but asks something else (does my game have to fit it, is my idea ok for it, can i ignore it, what does it mean), do not use theme; that post is "human" (or "faq" if an FAQ answers it).
   - form: whether the jame gam submission form is open yet, or when it closes.
   How many days they get to pick a prize, or when the shop closes, is "faq", not jam_facts.
 - "faq": a general question that one of the FAQ questions below answers. Return that FAQ question's exact text in "faq". Lean slightly toward this route: if an FAQ answer would genuinely help, pick it even if a human might add a little more.
-- "human": needs a person's judgment or account access: appeals or "why was I rejected", late or missed submissions and asking for exceptions or extensions, customs or duties or shipping-to-my-country exceptions, changing or cancelling an order (address, prize, size), errors or bugs on the form, the site or itch, a tracking link that doesn't work, problems with an account, identity verification, reviewer or helper applications and reviewer pay, or anything the FAQ and the routes above don't cover.
+- "human": needs a person's judgment or account access: appeals or "why was I rejected", late or missed submissions and asking for exceptions or extensions, customs or duties or shipping-to-my-country exceptions, changing or cancelling an order (address, prize, size), errors or bugs on the form, the site or itch, a tracking link that doesn't work, a prize marked delivered or sent that never arrived (or arrived lost, damaged or wrong), a missed prize pick window, something about their submission or order that looks wrong or mixed up, problems with an account, identity verification, reviewer or helper applications and reviewer pay, or anything the FAQ and the routes above don't cover.
 - "none": not a question for helpers: thanks, chatter, introductions, looking for teammates, announcements.
 
 Never pick faq, jam_facts, status or tracking for an appeal, a late or missed submission, a customs exception or an order change: those are always "human".
@@ -118,17 +130,36 @@ def _match_entry(question: str | None, entries: list[FaqEntry]) -> FaqEntry | No
     return entry_by_question(question)
 
 
-# A post that directly asks what the theme is or when it comes out
-DIRECT_THEME = re.compile(
-    r"\bwhat(?:'s| is| will be| was)?\s+(?:the\s+|this\s+)?(?:(?:jam|month'?s?|next)\s+)?(?:theme|topic)\b(?!\s+(?:means|mean))"
-    r"|\b(?:when|where)\b[^.?!]{0,40}\b(?:theme|topic)\b[^.?!]{0,30}\b(?:announced|revealed|released|out|drop|drops|come|comes|posted|decided|get|given|shown|be)\b"
-    r"|\b(?:when|where)(?:'s| is| do we get| will we get)\s+(?:the\s+)?(?:theme|topic)\b"
-    r"|\b(?:theme|topic)\b\s+(?:is\s+)?(?:out|announced|revealed|released)(?:\s+yet)?\b"
-    r"|\bis\s+(?:the\s+)?(?:theme|topic)\s+(?:out|announced|revealed|released)\b"
-    r"|\b(?:any|is there a|is there an?y?|got a)\s+(?:specific\s+)?(?:theme|topic)\s+(?:yet|for)\b"
-    r"|^\W*(?:theme|topic)\W*$",
+# A post that directly asks what the theme is or when it comes out: it
+# mentions the theme, asks about it, and isn't asking whether something fits
+# it, what it means, or whether it can be ignored.
+THEME_WORD = re.compile(r"\b(theme|topic|thema)s?\b", re.IGNORECASE)
+THEME_ASK = re.compile(
+    r"\b(what|whats|what's|which|when|whens|when's|where|has|have|is|isn'?t|did|any|anyone know"
+    r"|find out|know|reveal|revealed|reveals|drop|dropped|drops|announce|announced|out"
+    r"|posted|released|tell)\b|^\W*(theme|topic)\W*$",
     re.IGNORECASE,
 )
+THEME_NOT_ASKING = re.compile(
+    r"\b(fit|fits|fitting|match|matches|matching|follow|following|ignor\w*|mean|means|meaning"
+    r"|interpret\w*|stretch|relate\w*|idea|ideas|allowed|count|counts|reskin|hate|drift\w*"
+    r"|stick to|be about|explain|example|ok|okay|alright|change|vague|need|needs|required|require|have to|has to|must)\b",
+    re.IGNORECASE,
+)
+
+
+class _DirectTheme:
+    """re-like `search` so tests and callers can treat it as a pattern."""
+
+    def search(self, text: str) -> bool:
+        return bool(
+            THEME_WORD.search(text)
+            and THEME_ASK.search(text)
+            and not THEME_NOT_ASKING.search(text)
+        )
+
+
+DIRECT_THEME = _DirectTheme()
 
 
 def apply_guards(text: str, result: Classification) -> Classification:
@@ -165,6 +196,12 @@ def apply_guards(text: str, result: Classification) -> Classification:
             route="human", confidence=result.confidence, raw=result.raw
         )
     if result.route in ("faq", "jam_facts") and JUDGMENT_CALL.search(text):
+        return Classification(
+            route="human", confidence=result.confidence, raw=result.raw
+        )
+    if result.route in ("tracking", "status") and (
+        ORDER_PROBLEM.search(text) or JUDGMENT_CALL.search(text)
+    ):
         return Classification(
             route="human", confidence=result.confidence, raw=result.raw
         )
