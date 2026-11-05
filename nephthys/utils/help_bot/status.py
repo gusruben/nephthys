@@ -238,6 +238,21 @@ def status_outcome(
     )
 
 
+_FILLER = {"the", "a", "my", "hack", "club", "prize", "jam", "game", "new"}
+
+
+def _words(text: str) -> set[str]:
+    text = text.lower().replace("\u00e5", "a").replace("t-shirt", "shirt")
+    return {w.rstrip("s") for w in re.findall(r"[a-z0-9]+", text)} - _FILLER
+
+
+def matches_item(order: Order, item: str) -> bool:
+    """Whether the order is the prize they named ("blahaj" matches "blahaj
+    plushie", "hack club shirt" matches "hack club t-shirt")."""
+    asked, have = _words(item), _words(order.prize)
+    return bool(asked & have)
+
+
 def has_tracking(order: Order) -> bool:
     """Whether the fulfillment note gives them a way to track or receive it:
     a link or tracking number, or a digital prize that was sent another way."""
@@ -262,17 +277,22 @@ def tracking_outcome(
     orders: list[Order],
     config: JamConfig | None,
     delete_after: datetime,
+    item: str | None = None,
 ) -> Outcome:
-    """Answer for every order from their newest jams (someone asking about
-    an older jam's prize usually has a newer order too)."""
+    """Answer for the order they asked about: the one matching the prize they
+    named, or else their orders from the newest jam they ordered in."""
     copy = _copy()
     summary = submission_summary(rows, orders, config)
-    if not orders:
+    live = [o for o in orders if o.status != "canceled"]
+    if not live:
         return _human(summary, "no_order")
-    newest = sorted({o.jam for o in orders}, reverse=True)[:3]
-    recent = [o for o in orders if o.jam in newest and o.status != "canceled"]
-    if not recent:
-        return _human(summary, "order_unclear")
+    if item:
+        recent = [o for o in live if matches_item(o, item)]
+        if not recent:
+            return _human(summary, "no_matching_order", item=item)
+    else:
+        newest = max(o.jam for o in live)
+        recent = [o for o in live if o.jam == newest]
 
     public: list[str] = []
     private: list[str] = []

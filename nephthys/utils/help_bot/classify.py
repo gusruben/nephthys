@@ -35,14 +35,21 @@ class Classification:
     confidence: float = 0.0
     faq: FaqEntry | None = None
     facts: list[str] = field(default_factory=list)
+    # The post is about the asker's own submission, DM or prize from a jam
+    # before the one under review
+    older_jam: bool = False
+    # The prize they asked about, if they named one ("blahaj")
+    item: str | None = None
+    # Why a guard turned it into a human ticket (a ticket_post_reasons key)
+    reason: str | None = None
     raw: str = ""
 
 
 SYSTEM_PROMPT = """You triage new posts in the help channel for jame gam, Hack Club's monthly game jam for teenagers. A bot answers some posts by itself; you decide which kind each post is.
 
 Pick exactly one route:
-- "status": the asker wants to know where THEIR OWN submission is: has it been reviewed, was it approved, when will it be reviewed, where is their approval or prize DM, can they pick their prize yet, their teammate got a DM but they didn't. Personal questions about their own project's review.
-- "tracking": the asker wants to know where THEIR OWN prize or order is: tracking number, has it shipped, when will it arrive, they haven't received it.
+- "status": the asker asks or complains about THEIR OWN submission: has it been reviewed, was it approved, when will it be reviewed, where is their approval or prize DM, they still haven't heard anything, their teammate got a DM but they didn't. Pick this over "faq" whenever the post is about their own game, DM or prize, even if an FAQ question is related.
+- "tracking": the asker wants to know where THEIR OWN prize order is: tracking number, has it shipped, when will it arrive, they haven't received it. If they name the prize, return it in "item". Stickers are not a prize order: sticker questions are "human".
 - "jam_facts": a question about the current or next jam's facts. Also return which facts in "facts":
   - jam_dates: which jam is next or running, when it starts or ends, how often jams happen.
   - theme: ONLY when the post directly asks what the theme is, or when or where the theme comes out. If the post mentions the theme but asks something else (does my game have to fit it, is my idea ok for it, can i ignore it, what does it mean), do not use theme; that post is "human" (or "faq" if an FAQ answers it).
@@ -54,8 +61,10 @@ Pick exactly one route:
 
 Never pick faq, jam_facts, status or tracking for an appeal, a late or missed submission, a customs exception or an order change: those are always "human".
 
+Also set "older_jam" to true when the post is about the asker's own submission, review, DM or prize from a jam EARLIER than the one under review (named below), for example by naming an earlier jam or saying "last jam". Otherwise false.
+
 Reply with only a JSON object, no prose:
-{"route": "...", "faq": "<exact FAQ question or null>", "facts": [...], "confidence": <0 to 1>}"""
+{"route": "...", "faq": "<exact FAQ question or null>", "facts": [...], "item": "<prize they named or null>", "older_jam": <true or false>, "confidence": <0 to 1>}"""
 
 
 def _prompt_faq(entries: list[FaqEntry]) -> str:
@@ -79,6 +88,8 @@ def parse_reply(content: str, entries: list[FaqEntry]) -> Classification:
     except (TypeError, ValueError):
         confidence = 0.0
     facts = [f for f in data.get("facts") or [] if f in JAM_FACTS]
+    older_jam = data.get("older_jam") is True
+    item = data.get("item") if isinstance(data.get("item"), str) else None
     faq = None
     if route == "faq":
         faq = _match_entry(data.get("faq"), entries)
@@ -87,7 +98,13 @@ def parse_reply(content: str, entries: list[FaqEntry]) -> Classification:
     if route == "jam_facts" and not facts:
         route = "human"
     return Classification(
-        route=route, confidence=confidence, faq=faq, facts=facts, raw=content
+        route=route,
+        confidence=confidence,
+        faq=faq,
+        facts=facts,
+        older_jam=older_jam,
+        item=(item.strip() or None) if item else None,
+        raw=content,
     )
 
 
@@ -120,6 +137,16 @@ def apply_guards(text: str, result: Classification) -> Classification:
     to posts that plainly ask what the theme is or when it's out."""
     if result.route in ("human", "none"):
         return result
+    # Anything about their own older jam is for a human (tracking excepted:
+    # orders from any jam can be looked up)
+    if result.older_jam and result.route != "tracking":
+        return Classification(
+            route="human",
+            confidence=result.confidence,
+            older_jam=True,
+            reason="older_jam",
+            raw=result.raw,
+        )
     if result.route == "jam_facts" and "theme" in result.facts:
         if not DIRECT_THEME.search(text):
             facts = [f for f in result.facts if f != "theme"]
@@ -144,7 +171,9 @@ def apply_guards(text: str, result: Classification) -> Classification:
     return result
 
 
-async def classify(text: str, entries: list[FaqEntry]) -> Classification:
+async def classify(
+    text: str, entries: list[FaqEntry], context: str = ""
+) -> Classification:
     if not env.ai_client or not text.strip():
         return Classification(route="human")
     try:
@@ -155,7 +184,7 @@ async def classify(text: str, entries: list[FaqEntry]) -> Classification:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {
                     "role": "user",
-                    "content": f"FAQ questions:\n{_prompt_faq(entries)}\n\nThe post:\n<post>\n{text}\n</post>",
+                    "content": f"{context}\n\nFAQ questions:\n{_prompt_faq(entries)}\n\nThe post:\n<post>\n{text}\n</post>".strip(),
                 },
             ],
         )
@@ -169,6 +198,6 @@ async def classify(text: str, entries: list[FaqEntry]) -> Classification:
     )
     result = apply_guards(text, parse_reply(content, entries))
     logging.info(
-        f"Help bot classification route={result.route} confidence={result.confidence} faq={result.faq.question if result.faq else None} facts={result.facts}"
+        f"Help bot classification route={result.route} confidence={result.confidence} faq={result.faq.question if result.faq else None} facts={result.facts} older_jam={result.older_jam} item={result.item}"
     )
     return result

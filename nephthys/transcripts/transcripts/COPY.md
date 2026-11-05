@@ -55,7 +55,7 @@ After the form window closes, a form question gets no answer and stays a normal 
 
 This isn't a status checker. It catches people asking or complaining about their game in the jam under review, which is the newest jam anyone has submitted to ("still no review", "where's my dm"). The bot says one of three things, resolves the ticket (no helper credit), adds a reopen button, and deletes the whole thread 24 hours later unless they reopen it.
 
-Anything else is a normal ticket for a human, and the ticket post still shows what the bot found: no submission in the jam under review (including every question about an older jam), Pending, Needs Augie, Rejected, No Prize, Stickers Only, anything unexpected, two rows for the same game that disagree, no row, or Airtable unreadable. Rejections are never mentioned in the thread. Prize Only reads as approved everywhere.
+Anything else is a normal ticket for a human, and the ticket post still shows what the bot found: a post about their own submission, DM or prize from an older jam (the classifier is told which jam is under review and flags these), no submission in the jam under review, Pending, Needs Augie, Rejected, No Prize, Stickers Only, anything unexpected, two rows for the same game that disagree, no row, or Airtable unreadable. Rejections are never mentioned in the thread. Prize Only reads as approved everywhere.
 
 | string | when | example |
 |---|---|---|
@@ -69,7 +69,7 @@ Anything else is a normal ticket for a human, and the ticket post still shows wh
 
 ## Tracking
 
-These are for "where's my prize" and "can i get tracking". The bot covers every order from their newest three jams; canceled orders are skipped. Someone with no order gets the status answer instead. `bot_note` goes under each public reply.
+These are for "where's my prize" and "can i get tracking". If they name the prize ("my blahaj"), the bot answers about that order, from any jam, and leaves it for a human when there's no matching order. Otherwise it covers their orders from the newest jam they ordered in. Canceled orders are skipped, and sticker questions are always for a human (stickers aren't prize orders). Someone with no order gets the status answer instead. `bot_note` goes under each public reply.
 
 | string | when | example |
 |---|---|---|
@@ -90,7 +90,7 @@ These are a few extra lines at the top of each ticket's post. For a ticket the b
 | `ticket_post_submission` | **submission:** the jame gam game jam (2026-10): **Rooted** approved, waiting on the spotcheck; order: blahaj plushie, not fulfilled |
 | `ticket_post_no_submission` | **submission:** none found for this slack id |
 | `ticket_post_bot` + `ticket_post_actions` | **bot:** answered from the faq: what size is the blåhaj?<br>**bot:** answered with live jam info<br>**bot:** answered their status and resolved it. the thread deletes friday, november 6 at 1pm ET unless they reopen<br>**bot:** sent them their shipping details and resolved it. ...<br>**bot:** pinged @Gabin for tracking<br>**bot:** left this for a human: {reason} |
-| `ticket_post_reasons` | no submission found for their slack id / their only submissions are withdrawn / nothing from them in the jam under review (2026-10), so no status reply / their submission needs a human look (see above) / they have rows for the same game that disagree / no order found for them / their order needs a human look / couldn't read airtable / their order has no tracking and i couldn't find who sent it |
+| `ticket_post_reasons` | no submission found for their slack id / their only submissions are withdrawn / nothing from them in the jam under review (2026-10), so no status reply / it's about an older jam, so no bot reply / no order matching what they asked about (blahaj) / their submission needs a human look (see above) / they have rows for the same game that disagree / no order found for them / their order needs a human look / couldn't read airtable / their order has no tracking and i couldn't find who sent it |
 | `ticket_post_states` | not reviewed yet / approved, waiting on the spotcheck / approved and spotchecked, prize dm not sent / approved, prize dm queued / approved, prize dm sent november 3 / pending, note: {last line of notes} / needs augie / rejected / no prize (they see it as rejected) / stickers only / withdrawn |
 | `ticket_post_still_need_help` | **the asker said the bot's answer didn't help** |
 | `ticket_post_reopened` | **reopened by the asker** after the bot's answer |

@@ -92,7 +92,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         self.route = "status"
         self.faq_entry = None
 
-        async def fake_classify(text, entries):
+        async def fake_classify(text, entries, context=""):
             from nephthys.utils.help_bot.classify import Classification
 
             return Classification(route=self.route, confidence=0.9, faq=self.faq_entry)
@@ -355,7 +355,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_jam_dates_unfurl(self):
         from nephthys.events import help_bot
 
-        async def classify(text, entries):
+        async def classify(text, entries, context=""):
             from nephthys.utils.help_bot.classify import Classification
 
             return Classification(

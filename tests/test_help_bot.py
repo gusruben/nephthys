@@ -39,7 +39,7 @@ class FaqParserTests(unittest.TestCase):
         faq.faq_entries = self.entries
 
     def test_reads_every_heading(self):
-        self.assertEqual(len(self.entries), 21)
+        self.assertEqual(len(self.entries), 22)
         self.assertEqual(
             self.entries[0].question, "how do i know if my project is approved?"
         )
@@ -58,6 +58,15 @@ class FaqParserTests(unittest.TestCase):
         self.assertIn(
             "<https://jamegam.hackclub.com/#faq-effort|this rule>",
             by_q["can i get a prize just by doing art or music?"].answer,
+        )
+
+    def test_struck_text_and_channels(self):
+        by_q = {e.question: e for e in self.entries}
+        ai = by_q["is AI allowed?"].answer
+        self.assertNotIn("20%", ai)  # struck out in the canvas
+        self.assertIn("completely disallowed", ai)
+        self.assertIn(
+            "<#C0BBDUEMF0E>", by_q["i missed the deadline to submit to the jam!"].answer
         )
 
     def test_section_ids_deep_link(self):
@@ -114,6 +123,24 @@ class ClassifyTests(unittest.TestCase):
             '{"route": "jam_facts", "facts": ["form"], "confidence": 1}', self.entries
         )
         self.assertEqual((r.route, r.facts), ("jam_facts", ["form"]))
+
+    def test_reads_older_jam_and_item(self):
+        r = parse_reply(
+            '{"route": "tracking", "item": "blahaj", "older_jam": true, "confidence": 0.9}',
+            self.entries,
+        )
+        self.assertEqual((r.item, r.older_jam), ("blahaj", True))
+
+    def test_older_jam_goes_to_a_human(self):
+        for route in ["status", "faq"]:
+            r = Classification(
+                route=route, confidence=0.9, older_jam=True, faq=self.entries[0]
+            )
+            out = apply_guards("did anyone get a dm for the cozy fall jam? i didn't", r)
+            self.assertEqual((out.route, out.reason), ("human", "older_jam"), route)
+        # orders from any jam can still be looked up
+        r = Classification(route="tracking", confidence=0.9, older_jam=True)
+        self.assertEqual(apply_guards("where's my gmtk blahaj", r).route, "tracking")
 
     def test_low_confidence_is_human(self):
         r = Classification(route="status", confidence=0.4)
@@ -308,21 +335,32 @@ class TrackingTests(unittest.TestCase):
             "no_tracking_contact",
         )
 
-    def test_several_orders(self):
-        out = tracking_outcome(
-            [row()],
-            [
-                order(id="a", jam="2026-08", status="fulfilled", info="https://t.co/x"),
-                order(
-                    id="b", jam="2026-10", prize="kodak charmera", status="processing"
-                ),
-            ],
-            config(),
-            DELETE_AFTER,
-        )
+    ORDERS = [
+        order(id="a", jam="2026-07", status="fulfilled", info="https://t.co/x"),
+        order(id="b", jam="2026-10", prize="kodak charmera", status="processing"),
+        order(id="c", jam="2026-09", prize="hack club t-shirt", status="not fulfilled"),
+    ]
+
+    def test_newest_jam_by_default(self):
+        out = tracking_outcome([row()], self.ORDERS, config(), DELETE_AFTER)
         self.assertTrue(out.resolve)
         self.assertIn("kodak charmera", out.answer)
-        self.assertIn("blahaj plushie", out.answer)
+        self.assertNotIn("blahaj", out.answer)
+
+    def test_named_item(self):
+        for item, prize in [
+            ("blåhaj", "blahaj plushie"),
+            ("hack club shirt", "hack club t-shirt"),
+            ("charmera", "kodak charmera"),
+        ]:
+            out = tracking_outcome(
+                [row()], self.ORDERS, config(), DELETE_AFTER, item=item
+            )
+            self.assertIn(prize, out.answer, item)
+            self.assertEqual(out.answer.count("your "), 1, item)
+        out = tracking_outcome([row()], self.ORDERS, config(), DELETE_AFTER, item="ps5")
+        self.assertEqual(out.reason, "no_matching_order")
+        self.assertIn("ps5", out.action)
 
 
 class JamFactsTests(unittest.TestCase):
@@ -481,6 +519,7 @@ class CopyRulesTests(unittest.TestCase):
                 "note",
                 "status",
                 "jam",
+                "item",
             ]
         }
         for name, text in self.strings():

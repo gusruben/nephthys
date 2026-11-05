@@ -30,14 +30,19 @@ _last_refresh_failed = False
 
 _EMOJI = re.compile(r":[a-z0-9_+\-]+:")
 _MENTION = re.compile(r"@(U[A-Z0-9]{6,})")
+_CHANNEL = re.compile(r"(?<![<\w])#(C[A-Z0-9]{6,})")
 _HEADING_TAGS = {"h1", "h2", "h3"}
 _BLOCK_TAGS = {"p", "td", "th"}
 _LINK_TAGS = {"a", "lnk"}
+# Struck-out text in the canvas isn't part of the answer
+_STRUCK_TAGS = {"del", "s", "strike"}
 
 
 def _clean(text: str) -> str:
-    """Collapse whitespace, drop :emoji: codes and turn @U123 into a mention."""
+    """Collapse whitespace, drop :emoji: codes and turn @U123 / #C123 into
+    a mention / channel link."""
     text = " ".join(_EMOJI.sub("", text).split())
+    text = _CHANNEL.sub(r"<#\1>", text)
     return _MENTION.sub(r"<@\1>", text)
 
 
@@ -74,6 +79,7 @@ class _CanvasFaqParser(HTMLParser):
         # Open link, kept so its text becomes <href|text>
         self.link_href: str | None = None
         self.link_text: list[str] = []
+        self.struck = 0
 
     def _buffer(self) -> list[str] | None:
         if self.heading_text is not None:
@@ -83,7 +89,9 @@ class _CanvasFaqParser(HTMLParser):
         return self.block
 
     def handle_starttag(self, tag, attrs):
-        if tag in _HEADING_TAGS:
+        if tag in _STRUCK_TAGS:
+            self.struck += 1
+        elif tag in _HEADING_TAGS:
             self._finish_section()
             self.heading_text = []
             self.heading_id = dict(attrs).get("id")
@@ -100,7 +108,9 @@ class _CanvasFaqParser(HTMLParser):
                 self.link_text = []
 
     def handle_endtag(self, tag):
-        if tag in _LINK_TAGS and self.link_href is not None:
+        if tag in _STRUCK_TAGS:
+            self.struck = max(0, self.struck - 1)
+        elif tag in _LINK_TAGS and self.link_href is not None:
             text = "".join(self.link_text).strip()
             buffer = self._buffer()
             if buffer is not None:
@@ -135,6 +145,8 @@ class _CanvasFaqParser(HTMLParser):
             self.li = None
 
     def handle_data(self, data):
+        if self.struck:
+            return
         if self.link_href is not None:
             self.link_text.append(data)
             return

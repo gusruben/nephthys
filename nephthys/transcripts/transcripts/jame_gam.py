@@ -90,6 +90,8 @@ if your question gets answered, hit the button below to mark it resolved
             "unclear": "their submission needs a human look (see above)",
             "conflict": "they have rows for the same game that disagree",
             "not_current": "nothing from them in the jam under review ({jam}), so no status reply",
+            "older_jam": "it's about an older jam, so no bot reply",
+            "no_matching_order": "no order matching what they asked about ({item})",
             "no_order": "no order found for them",
             "order_unclear": "their order needs a human look",
             "airtable": "couldn't read airtable",

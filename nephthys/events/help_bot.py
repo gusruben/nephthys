@@ -34,6 +34,7 @@ from nephthys.utils.help_bot.classify import Classification
 from nephthys.utils.help_bot.classify import classify
 from nephthys.utils.help_bot.jam_config import get_jam_config
 from nephthys.utils.help_bot.jam_config import jam_facts_text
+from nephthys.utils.help_bot.jam_config import JamConfig
 from nephthys.utils.help_bot.status import Outcome
 from nephthys.utils.help_bot.status import status_outcome
 from nephthys.utils.help_bot.status import submission_summary
@@ -125,14 +126,18 @@ async def _run_help_bot(
     slack_id = lookup_slack_id(text, author_id, bool(author and author.helper))
     question = IMPERSONATE.sub("", text).strip()
 
-    (rows, orders, airtable_error), result, config = await asyncio.gather(
+    config, review_jam = await asyncio.gather(get_jam_config(), airtable.review_jam())
+    (rows, orders, airtable_error), result = await asyncio.gather(
         _fetch_rows(slack_id),
-        classify(question, faq.faq_entries),
-        get_jam_config(),
+        classify(question, faq.faq_entries, jam_context(config, review_jam)),
     )
     info = HelpBotTicket(ticket=ticket.id, route=result.route)
     if not airtable_error:
         info.submission_summary = submission_summary(rows, orders, config)
+    if result.reason:
+        info.action_summary = copy.ticket_post_actions["human"].format(
+            reason=copy.ticket_post_reasons[result.reason]
+        )
 
     now = datetime.now(timezone.utc)
     delete_after = now + timedelta(minutes=env.jamegam_delete_after_minutes)
@@ -169,8 +174,8 @@ async def _run_help_bot(
                 reason=reason
             )
         else:
-            outcome = await _status_or_tracking(
-                result, rows, orders, config, delete_after
+            outcome = _status_or_tracking(
+                result, rows, orders, config, review_jam, delete_after
             )
             await act_on_outcome(ticket, info, outcome, author_id, delete_after, client)
 
@@ -178,12 +183,28 @@ async def _run_help_bot(
     await refresh_ticket_post(ticket, client)
 
 
-async def _status_or_tracking(
-    result: Classification, rows, orders, config, delete_after
+def jam_context(config: JamConfig | None, review_jam: str | None) -> str:
+    """Tells the classifier which jam is under review, so it can tell when a
+    post is about an older one."""
+    if not review_jam:
+        return ""
+    name = config.jam_name(review_jam) if config else review_jam
+    earlier = (
+        [f"{v} ({k})" for k, v in config.shop.cycles.items() if k < review_jam]
+        if config
+        else []
+    )
+    text = f"The jam under review is {name} ({review_jam})."
+    if earlier:
+        text += " Earlier jams: " + ", ".join(earlier) + ", and older ones."
+    return text
+
+
+def _status_or_tracking(
+    result: Classification, rows, orders, config, review_jam, delete_after
 ) -> Outcome:
     if result.route == "tracking" and orders:
-        return tracking_outcome(rows, orders, config, delete_after)
-    review_jam = await airtable.review_jam()
+        return tracking_outcome(rows, orders, config, delete_after, item=result.item)
     return status_outcome(rows, orders, config, review_jam, delete_after)
 
 
