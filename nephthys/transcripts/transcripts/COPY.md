@@ -20,6 +20,7 @@ When a new question matches a question in the FAQ canvas, the bot posts the answ
 | `faq_still_need_help_button` | button under the answer. Leaves the ticket open. The same label is the button on status and tracking answers, where it reopens the ticket (the existing reopen action) | **still need help** |
 | `faq_still_need_help_reply` | in the thread after "still need help". The buttons come off the answer, with nothing in their place | no worries! a helper will be along soon to take a look |
 | `buttons_not_yours` | only visible to the clicker, when someone other than the asker or a helper clicks either button. Augie's own wording (helpers can still click them) | only the person who asked can use these buttons |
+| `action_failed` | only visible to whoever clicked, when one of the bot's buttons (or `?faq <topic>`) breaks. The ticket itself is untouched | oops, that didn't work on my end. please try again in a bit! |
 
 The same two buttons sit under live jam fact answers (next section). Pick-window questions ("how long do i have to pick my prize") are plain FAQ matches.
 

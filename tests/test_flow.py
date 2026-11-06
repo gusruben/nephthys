@@ -12,6 +12,7 @@ from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
 from typing import Any
+from unittest import mock
 
 import tests  # noqa: F401 (sets the fake environment first)
 from tests.helpers import config
@@ -109,11 +110,17 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         async def fake_review_jam():
             return "2026-10"
 
-        help_bot.classify = fake_classify
-        help_bot.get_jam_config = fake_config
-        help_bot.airtable.submissions_for = fake_rows
-        help_bot.airtable.orders_for = fake_orders
-        help_bot.airtable.review_jam = fake_review_jam
+        # Patched for this test only, so other test files get the real ones
+        for target, name, fake in [
+            (help_bot, "classify", fake_classify),
+            (help_bot, "get_jam_config", fake_config),
+            (help_bot.airtable, "submissions_for", fake_rows),
+            (help_bot.airtable, "orders_for", fake_orders),
+            (help_bot.airtable, "review_jam", fake_review_jam),
+        ]:
+            patcher = mock.patch.object(target, name, fake)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     async def asyncTearDown(self):
         await self.env.session.close()
@@ -378,8 +385,8 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
                 route="jam_facts", confidence=0.9, facts=["jam_dates"]
             )
 
-        help_bot.classify = classify
-        await self.ask("CTESTHELP", "when is the next jam?")
+        with mock.patch.object(help_bot, "classify", classify):
+            await self.ask("CTESTHELP", "when is the next jam?")
         answer = self.slack.named("chat_postMessage")[-1]
         self.assertIn("the mfg gambler's jam", answer["text"])
         self.assertTrue(answer["unfurl_links"])

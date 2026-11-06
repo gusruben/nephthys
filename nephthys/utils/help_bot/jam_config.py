@@ -7,7 +7,6 @@
 #
 # The form counts as open when jam.js has a `submitUrl` and it's before the jam
 # ends plus `submitWindowDays`. There's deliberately no separate close time.
-import logging
 import time
 from datetime import datetime
 from datetime import timedelta
@@ -70,7 +69,9 @@ async def get_jam_config() -> JamConfig | None:
             res.raise_for_status()
             config = JamConfig.model_validate(await res.json())
     except Exception as e:
-        logging.warning(f"Failed to read jam config url={url} error={e}")
+        from nephthys.utils.help_bot.report import report
+
+        await report("jam config", f"couldn't read {url}, so no jam facts answers: {e}")
         # A stale copy beats nothing
         return _cache[1] if _cache else None
     _cache = (time.monotonic(), config)

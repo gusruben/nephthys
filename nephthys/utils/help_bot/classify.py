@@ -3,18 +3,22 @@
 # The model only picks from fixed routes and the FAQ canvas's own questions, so
 # it can't make up an answer: everything the bot posts comes from the canvas,
 # the live jam config or the asker's Airtable rows.
+import asyncio
 import json
 import logging
+import math
 import re
 from dataclasses import dataclass
 from dataclasses import field
 
-from openai import OpenAIError
+from openai import APIStatusError
+from openai import RateLimitError
 
 from nephthys.utils.env import env
 from nephthys.utils.faq import entry_by_question
 from nephthys.utils.faq import FaqEntry
 from nephthys.utils.help_bot.jam_config import JAM_FACTS
+from nephthys.utils.help_bot.report import report
 
 ROUTES = ("status", "tracking", "jam_facts", "faq", "human", "none")
 
@@ -97,19 +101,29 @@ def parse_reply(content: str, entries: list[FaqEntry]) -> Classification:
         data = json.loads(match.group(0))
     except json.JSONDecodeError:
         return Classification(route="human", raw=content)
+    if not isinstance(data, dict):
+        return Classification(route="human", raw=content)
     route = data.get("route")
-    if route not in ROUTES:
+    if not isinstance(route, str) or route not in ROUTES:
         return Classification(route="human", raw=content)
     try:
         confidence = float(data.get("confidence") or 0)
     except (TypeError, ValueError):
         confidence = 0.0
-    facts = [f for f in data.get("facts") or [] if f in JAM_FACTS]
+    if not math.isfinite(confidence):
+        confidence = 0.0
+    raw_facts = data.get("facts")
+    facts = (
+        [f for f in raw_facts if isinstance(f, str) and f in JAM_FACTS]
+        if isinstance(raw_facts, list)
+        else []
+    )
     older_jam = data.get("older_jam") is True
     item = data.get("item") if isinstance(data.get("item"), str) else None
     faq = None
     if route == "faq":
-        faq = _match_entry(data.get("faq"), entries)
+        question = data.get("faq")
+        faq = _match_entry(question if isinstance(question, str) else None, entries)
         if not faq:
             route = "human"
     if route == "jam_facts" and not facts:
@@ -242,32 +256,73 @@ def apply_guards(text: str, result: Classification) -> Classification:
     return result
 
 
+# How long one classification call may take, and the pause before its single
+# retry. The ticket already exists by now, so a slow call only delays the
+# bot's answer, never the ticket.
+AI_TIMEOUT_SECONDS = 12
+AI_RETRY_PAUSE_SECONDS = 1.5
+
+
+def _retryable(e: Exception) -> bool:
+    """Rate limits and server errors get one retry; everything else (out of
+    credits, bad key, bad request, timeouts) doesn't."""
+    if isinstance(e, RateLimitError):
+        return True
+    return isinstance(e, APIStatusError) and e.status_code >= 500
+
+
+async def _ask_model(text: str, entries: list[FaqEntry], context: str) -> str:
+    assert env.ai_client
+    client = env.ai_client.with_options(timeout=AI_TIMEOUT_SECONDS, max_retries=0)
+    for attempt in range(2):
+        try:
+            response = await client.chat.completions.create(
+                model=env.ai_jamegam_model,
+                temperature=0,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": f"{context}\n\nFAQ questions:\n{_prompt_faq(entries)}\n\nThe post:\n<post>\n{text}\n</post>".strip(),
+                    },
+                ],
+            )
+        except Exception as e:
+            if attempt == 0 and _retryable(e):
+                await asyncio.sleep(AI_RETRY_PAUSE_SECONDS)
+                continue
+            raise
+        choices = getattr(response, "choices", None) or []
+        message = getattr(choices[0], "message", None) if choices else None
+        content = getattr(message, "content", None)
+        return content if isinstance(content, str) else ""
+    return ""
+
+
 async def classify(
     text: str, entries: list[FaqEntry], context: str = ""
 ) -> Classification:
+    """Never raises: any failure (out of credits, rate limited, timeout, a
+    reply that isn't the JSON we asked for) is a plain human ticket."""
     if not env.ai_client or not text.strip():
         return Classification(route="human")
     try:
-        response = await env.ai_client.chat.completions.create(
-            model=env.ai_jamegam_model,
-            temperature=0,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": f"{context}\n\nFAQ questions:\n{_prompt_faq(entries)}\n\nThe post:\n<post>\n{text}\n</post>".strip(),
-                },
-            ],
-        )
-    except OpenAIError as e:
-        logging.error(f"Help bot classification failed error={e}")
+        content = await _ask_model(text, entries, context)
+    except Exception as e:
+        status = getattr(e, "status_code", None)
+        kind = f"ai {status}" if status else f"ai {type(e).__name__}"
+        await report(kind, f"classification failed, leaving a normal ticket: {e}")
         return Classification(route="human")
-    content = (
-        response.choices[0].message.content
-        if response.choices and response.choices[0].message.content
-        else ""
-    )
-    result = apply_guards(text, parse_reply(content, entries))
+    if not content.strip():
+        await report(
+            "ai empty reply", "the model sent no content, leaving a normal ticket"
+        )
+        return Classification(route="human")
+    try:
+        result = apply_guards(text, parse_reply(content, entries))
+    except Exception as e:
+        await report("ai bad reply", f"couldn't use the model's reply: {e}", e)
+        return Classification(route="human", raw=content)
     logging.info(
         f"Help bot classification route={result.route} confidence={result.confidence} faq={result.faq.question if result.faq else None} facts={result.facts} older_jam={result.older_jam} item={result.item}"
     )

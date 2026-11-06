@@ -226,10 +226,20 @@ class Environment:
             self.jamegam_test_ticket_channel,
         }
 
+    @property
+    def help_bot_disabled(self) -> bool:
+        """JAMEGAM_HELP_BOT_DISABLED=true turns every help bot feature off.
+        Read on every call, so it takes effect as soon as the env changes."""
+        try:
+            return get_environ_bool("JAMEGAM_HELP_BOT_DISABLED", default=False)
+        except ValueError:
+            return True  # a typo in the switch should fail safe, i.e. off
+
     def new_flow_enabled(self) -> bool:
         """Whether the help bot features are on for the current help channel."""
         return (
             self.transcript.help_bot is not None
+            and not self.help_bot_disabled
             and self.slack_help_channel in self.jamegam_new_flow_channels
         )
 

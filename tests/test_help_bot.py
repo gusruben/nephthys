@@ -218,7 +218,7 @@ class StatusTests(unittest.TestCase):
         self.assertIn("the cozy fall jam (2026-09)", out.summary)  # helper context
 
     def test_unknown_review_jam_is_human(self):
-        self.assertEqual(status([row()], review_jam=None).reason, "not_current")
+        self.assertEqual(status([row()], review_jam=None).reason, "airtable")
 
     def test_current_jam_only(self):
         out = status([row(jam="2026-09", status="Rejected"), row(id="r2", status="")])

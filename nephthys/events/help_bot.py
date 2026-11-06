@@ -35,18 +35,22 @@ from nephthys.utils.help_bot.classify import classify
 from nephthys.utils.help_bot.jam_config import get_jam_config
 from nephthys.utils.help_bot.jam_config import jam_facts_text
 from nephthys.utils.help_bot.jam_config import JamConfig
+from nephthys.utils.help_bot.report import report
 from nephthys.utils.help_bot.status import Outcome
 from nephthys.utils.help_bot.status import status_outcome
 from nephthys.utils.help_bot.status import submission_summary
 from nephthys.utils.help_bot.status import tracking_outcome
-from nephthys.utils.logging import send_heartbeat
 from nephthys.utils.ticket_methods import delete_message
 from nephthys.utils.ticket_methods import get_question_message_link
 from nephthys.utils.ticket_methods import ThreadGoneError
 
 ANSWERED_ACTION = "help-bot-answered"
 NEED_HELP_ACTION = "help-bot-need-help"
-IMPERSONATE = re.compile(r"\[as (U[A-Z0-9]{6,})\]")
+# "[as U123]", or "[as @name]", which Slack turns into "[as <@U123>]"
+IMPERSONATE = re.compile(r"\[as <?@?(U[A-Z0-9]{6,})(?:\|[^>\]]*)?>?\]")
+# The most a new ticket's help bot run may take, all calls included. The
+# ticket itself already exists by then.
+RUN_TIMEOUT_SECONDS = 45
 
 
 async def help_bot_context_lines(msg_ts: str) -> list[str]:
@@ -55,11 +59,15 @@ async def help_bot_context_lines(msg_ts: str) -> list[str]:
     copy = env.transcript.help_bot
     if not copy:
         return []
-    info = (
-        await HelpBotTicket.objects()
-        .where(HelpBotTicket.ticket.msg_ts == msg_ts)
-        .first()
-    )
+    try:
+        info = (
+            await HelpBotTicket.objects()
+            .where(HelpBotTicket.ticket.msg_ts == msg_ts)
+            .first()
+        )
+    except Exception as e:
+        await report("ticket post lines", f"couldn't read help bot info: {e}", e)
+        return []
     if not info:
         return []
     lines = []
@@ -90,20 +98,22 @@ def lookup_slack_id(text: str, author_id: str, author_is_helper: bool) -> str:
 async def run_help_bot(
     ticket: Ticket, text: str, author_id: str, client: AsyncWebClient
 ) -> None:
-    """Called once a new ticket exists. Never raises: a failure here just
-    leaves a normal ticket."""
-    if not env.new_flow_enabled():
-        return
+    """Called once a new ticket exists. Never raises: on any failure the
+    ticket stays exactly what today's bot makes, a normal ticket."""
     try:
-        await _run_help_bot(ticket, text, author_id, client)
+        if not env.new_flow_enabled():
+            return
+        await asyncio.wait_for(
+            _run_help_bot(ticket, text, author_id, client), RUN_TIMEOUT_SECONDS
+        )
     except ThreadGoneError:
         logging.warning(f"Help bot: thread gone for ticket_id={ticket.id}")
-    except Exception as e:
-        logging.error(f"Help bot failed ticket_id={ticket.id} error={e}", exc_info=True)
-        await send_heartbeat(
-            f"Help bot failed on ticket {ticket.id}: {e}",
-            messages=[f"Ticket TS: {ticket.msg_ts}"],
+    except asyncio.TimeoutError:
+        await report(
+            "timeout", f"gave up on ticket {ticket.id} after {RUN_TIMEOUT_SECONDS}s"
         )
+    except Exception as e:
+        await report(f"run {type(e).__name__}", f"failed on ticket {ticket.id}: {e}", e)
 
 
 async def _fetch_rows(slack_id: str):
@@ -112,8 +122,8 @@ async def _fetch_rows(slack_id: str):
             airtable.submissions_for(slack_id), airtable.orders_for(slack_id)
         )
         return rows, orders, None
-    except airtable.AirtableError as e:
-        logging.error(f"Help bot couldn't read Airtable slack_id={slack_id} error={e}")
+    except Exception as e:
+        await report("airtable", f"couldn't read rows for {slack_id}: {e}")
         return [], [], e
 
 
@@ -132,13 +142,64 @@ async def _run_help_bot(
         classify(question, faq.faq_entries, jam_context(config, review_jam)),
     )
     info = HelpBotTicket(ticket=ticket.id, route=result.route)
-    if not airtable_error:
-        info.submission_summary = submission_summary(rows, orders, config)
-    if result.reason:
-        info.action_summary = copy.ticket_post_actions["human"].format(
-            reason=copy.ticket_post_reasons[result.reason]
+    try:
+        if not airtable_error:
+            info.submission_summary = submission_summary(rows, orders, config)
+        if result.reason:
+            info.action_summary = copy.ticket_post_actions["human"].format(
+                reason=copy.ticket_post_reasons[result.reason]
+            )
+    except Exception as e:
+        await report(
+            "summary", f"couldn't summarise rows for ticket {ticket.id}: {e}", e
         )
 
+    try:
+        await _answer(
+            ticket,
+            info,
+            result,
+            rows,
+            orders,
+            airtable_error,
+            config,
+            review_jam,
+            author_id,
+            client,
+        )
+    except ThreadGoneError:
+        raise
+    except Exception as e:
+        # The answer (or part of it) didn't go out: the ticket is still a
+        # normal open ticket, so record what we know and move on
+        await report(
+            f"answer {type(e).__name__}", f"couldn't post on ticket {ticket.id}: {e}", e
+        )
+
+    try:
+        await info.save()
+    except Exception as e:
+        await report(
+            "db", f"couldn't save help bot info for ticket {ticket.id}: {e}", e
+        )
+        return
+    await refresh_ticket_post(ticket, client)
+
+
+async def _answer(
+    ticket: Ticket,
+    info: HelpBotTicket,
+    result: Classification,
+    rows,
+    orders,
+    airtable_error,
+    config: JamConfig | None,
+    review_jam: str | None,
+    author_id: str,
+    client: AsyncWebClient,
+) -> None:
+    copy = env.transcript.help_bot
+    assert copy
     now = datetime.now(timezone.utc)
     delete_after = now + timedelta(minutes=env.jamegam_delete_after_minutes)
 
@@ -179,9 +240,6 @@ async def _run_help_bot(
                 result, rows, orders, config, review_jam, delete_after
             )
             await act_on_outcome(ticket, info, outcome, author_id, delete_after, client)
-
-    await info.save()
-    await refresh_ticket_post(ticket, client)
 
 
 def jam_context(config: JamConfig | None, review_jam: str | None) -> str:
@@ -225,21 +283,28 @@ async def act_on_outcome(
         return
     if outcome.ping_order:
         fulfiller = await _fulfiller_mention(outcome.ping_order)
-        await client.chat_postMessage(
-            channel=env.slack_ticket_channel,
-            thread_ts=ticket.ticket_ts,
-            text=copy.tracking_ping_team.format(
-                fulfiller=fulfiller,
-                asker=asker_id,
-                prize=outcome.ping_order.prize,
-                date=outcome.extra.get("sent", ""),
-                order_url=airtable.order_url(outcome.ping_order),
-                thread_url=get_question_message_link(ticket),
-            ),
-        )
-        info.action_summary = copy.ticket_post_actions["tracking_ping"].format(
-            fulfiller=fulfiller
-        )
+        try:
+            await client.chat_postMessage(
+                channel=env.slack_ticket_channel,
+                thread_ts=ticket.ticket_ts,
+                text=copy.tracking_ping_team.format(
+                    fulfiller=fulfiller,
+                    asker=asker_id,
+                    prize=outcome.ping_order.prize,
+                    date=outcome.extra.get("sent", ""),
+                    order_url=airtable.order_url(outcome.ping_order),
+                    thread_url=get_question_message_link(ticket),
+                ),
+            )
+            info.action_summary = copy.ticket_post_actions["tracking_ping"].format(
+                fulfiller=fulfiller
+            )
+        except Exception as e:
+            # The ticket stays open in the tickets channel either way, so a
+            # helper still sees it
+            await report(
+                "ping", f"couldn't ping the fulfiller on ticket {ticket.id}: {e}"
+            )
         info.answer_ts = await post_reply(
             ticket,
             outcome.answer,
@@ -271,7 +336,9 @@ async def act_on_outcome(
                 ),
             ],
         )
-        await _send_private(ticket, asker_id, outcome.private, client)
+        if not await _send_private(ticket, asker_id, outcome.private, client):
+            # They didn't get the details, so don't close it on them
+            return
         await bot_resolve(ticket, client)
         info.auto_resolved = True
         info.delete_after = delete_after
@@ -293,15 +360,24 @@ def _answer_blocks(text: str) -> list:
 
 async def _send_private(
     ticket: Ticket, asker_id: str, text: str | None, client: AsyncWebClient
-) -> None:
-    """Details only the asker should see (they can include an email)."""
-    if text:
+) -> bool:
+    """Details only the asker should see (they can include an email).
+    False if they couldn't be sent."""
+    if not text:
+        return True
+    try:
         await client.chat_postEphemeral(
             channel=env.slack_help_channel,
             thread_ts=ticket.msg_ts,
             user=asker_id,
             text=text,
         )
+        return True
+    except Exception as e:
+        await report(
+            "ephemeral", f"couldn't send private details on ticket {ticket.id}: {e}"
+        )
+        return False
 
 
 async def _fulfiller_mention(order: airtable.Order) -> str:
@@ -314,9 +390,9 @@ async def _fulfiller_mention(order: airtable.Order) -> str:
             user: dict = res.get("user") or {}
             if user.get("id"):
                 return f"<@{user['id']}>"
-        except SlackApiError as e:
+        except Exception as e:
             logging.warning(
-                f"Couldn't find fulfiller on Slack email={order.fulfilled_by_email} error={e.response.get('error')}"
+                f"Couldn't find fulfiller on Slack email={order.fulfilled_by_email} error={e}"
             )
     return order.fulfilled_by_name or "whoever sent it"
 
@@ -417,8 +493,8 @@ async def bot_resolve(ticket: Ticket, client: AsyncWebClient) -> None:
             name="thinking_face",
             timestamp=ticket.msg_ts,
         )
-    except SlackApiError as e:
-        logging.warning(f"Help bot reaction update failed: {e.response.get('error')}")
+    except Exception as e:
+        logging.warning(f"Help bot reaction update failed: {e}")
 
 
 async def refresh_ticket_post(ticket: Ticket, client: AsyncWebClient) -> None:
@@ -429,18 +505,18 @@ async def refresh_ticket_post(ticket: Ticket, client: AsyncWebClient) -> None:
         backend_message_fallback_text,
     )
 
-    fresh = (
-        await Ticket.objects(Ticket.opened_by, Ticket.reopened_by)
-        .where(Ticket.id == ticket.id)
-        .first()
-    )
-    if not fresh or not fresh.opened_by:
-        return
-    past_tickets = await Ticket.count().where(
-        (Ticket.opened_by == fresh.opened_by.id) & (Ticket.id != fresh.id)
-    )
-    reopened_by = fresh.reopened_by if fresh.reopened_by.id else None
     try:
+        fresh = (
+            await Ticket.objects(Ticket.opened_by, Ticket.reopened_by)
+            .where(Ticket.id == ticket.id)
+            .first()
+        )
+        if not fresh or not fresh.opened_by:
+            return
+        past_tickets = await Ticket.count().where(
+            (Ticket.opened_by == fresh.opened_by.id) & (Ticket.id != fresh.id)
+        )
+        reopened_by = fresh.reopened_by if fresh.reopened_by.id else None
         await client.chat_update(
             channel=env.slack_ticket_channel,
             ts=fresh.ticket_ts,
@@ -455,25 +531,57 @@ async def refresh_ticket_post(ticket: Ticket, client: AsyncWebClient) -> None:
                 reopened_by=reopened_by,
             ),
         )
-    except SlackApiError as e:
-        logging.warning(
-            f"Couldn't update ticket post ticket_id={ticket.id} error={e.response.get('error')}"
+    except Exception as e:
+        await report(
+            "ticket post", f"couldn't update ticket post for ticket {ticket.id}: {e}"
         )
 
 
 async def on_ticket_reopened(ticket: Ticket) -> None:
     """Called by reopen() before it posts the new ticket post. Stops the
-    pending thread deletion, and removes the old post the bot kept up."""
-    info = (
-        await HelpBotTicket.objects().where(HelpBotTicket.ticket == ticket.id).first()
-    )
-    if not info:
-        return
-    if info.auto_resolved and ticket.ticket_ts:
-        await delete_message(env.slack_ticket_channel, ticket.ticket_ts)
-    await HelpBotTicket.update(
-        {HelpBotTicket.reopened: True, HelpBotTicket.delete_after: None}
-    ).where(HelpBotTicket.id == info.id)
+    pending thread deletion, and removes the old post the bot kept up. Never
+    raises, so reopening always works."""
+    try:
+        info = (
+            await HelpBotTicket.objects()
+            .where(HelpBotTicket.ticket == ticket.id)
+            .first()
+        )
+        if not info:
+            return
+        # Stop the deletion first: that's the part that matters
+        await HelpBotTicket.update(
+            {HelpBotTicket.reopened: True, HelpBotTicket.delete_after: None}
+        ).where(HelpBotTicket.id == info.id)
+        if info.auto_resolved and ticket.ticket_ts:
+            await delete_message(env.slack_ticket_channel, ticket.ticket_ts)
+    except Exception as e:
+        await report(
+            "reopen",
+            f"couldn't update help bot info on reopen of ticket {ticket.id}: {e}",
+            e,
+        )
+
+
+async def tell_clicker_it_failed(
+    body: dict[str, Any], client: AsyncWebClient, e: Exception
+) -> None:
+    """A button or macro broke: say so, only to whoever clicked it."""
+    await report(f"button {type(e).__name__}", f"a click failed: {e}", e)
+    copy = env.transcript.help_bot
+    try:
+        channel = (body.get("channel") or {}).get("id") or env.slack_help_channel
+        message = body.get("message") or {}
+        await client.chat_postEphemeral(
+            channel=channel,
+            thread_ts=message.get("thread_ts") or message.get("ts"),
+            user=(body.get("user") or {})["id"],
+            text=copy.action_failed
+            if copy
+            else "something went wrong, please try again",
+        )
+    except Exception as e2:
+        logging.error(f"Couldn't tell the clicker a button failed: {e2}")
 
 
 async def _ticket_for_button(body: dict[str, Any]) -> tuple[Ticket, User] | None:
@@ -505,6 +613,20 @@ async def _may_use_buttons(ticket: Ticket, user: User) -> bool:
 
 
 async def handle_answered_button(body: dict[str, Any], client: AsyncWebClient):
+    try:
+        await _handle_answered_button(body, client)
+    except Exception as e:
+        await tell_clicker_it_failed(body, client, e)
+
+
+async def handle_need_help_button(body: dict[str, Any], client: AsyncWebClient):
+    try:
+        await _handle_need_help_button(body, client)
+    except Exception as e:
+        await tell_clicker_it_failed(body, client, e)
+
+
+async def _handle_answered_button(body: dict[str, Any], client: AsyncWebClient):
     from nephthys.actions.resolve import resolve
 
     copy = env.transcript.help_bot
@@ -525,7 +647,7 @@ async def handle_answered_button(body: dict[str, Any], client: AsyncWebClient):
         await resolve(ticket.msg_ts, user.slack_id, client)
 
 
-async def handle_need_help_button(body: dict[str, Any], client: AsyncWebClient):
+async def _handle_need_help_button(body: dict[str, Any], client: AsyncWebClient):
     copy = env.transcript.help_bot
     found = await _ticket_for_button(body)
     if not copy or not found:

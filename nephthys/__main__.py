@@ -97,7 +97,10 @@ async def main(_app: Starlette):
         delete_msg_task = asyncio.create_task(process_queue())
         await update_helpers()
         if help_bot_on:
-            await refresh_faq_entries()
+            try:
+                await refresh_faq_entries()
+            except Exception as e:
+                logging.error(f"FAQ canvas refresh at startup failed: {e}")
         handler = None
         if env.slack_app_token:
             if env.environment == "production":

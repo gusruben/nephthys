@@ -223,7 +223,7 @@ async def refresh_faq_entries() -> None:
     """Re-fetch the FAQ canvas, keeping the previous copy on failure."""
     global faq_entries, _last_refresh_failed
     canvas_id = env.transcript.faq_canvas_id
-    if not canvas_id:
+    if not canvas_id or env.help_bot_disabled:
         return
     entries: list[FaqEntry] = []
     # The user token first (as nephthys-plus does), then the bot token, since
@@ -239,10 +239,13 @@ async def refresh_faq_entries() -> None:
         if entries:
             break
     if not entries:
-        if not _last_refresh_failed:
-            logging.error(
-                f"Couldn't read any questions from FAQ canvas {canvas_id}, keeping the old copy. Check the logs!"
-            )
+        from nephthys.utils.help_bot.report import report
+
+        await report(
+            "faq canvas",
+            f"couldn't read any questions from canvas {canvas_id}, "
+            f"keeping the last good copy ({len(faq_entries)} questions)",
+        )
         _last_refresh_failed = True
         return
     _last_refresh_failed = False

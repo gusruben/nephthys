@@ -20,6 +20,8 @@ class HelpBotCopy(BaseModel):
     faq_still_need_help_button: str
     faq_still_need_help_reply: str
     buttons_not_yours: str
+    # Only to whoever clicked, when a button or macro failed
+    action_failed: str
     # Small line under every answer the bot gives on its own, saying it's the bot
     bot_note: str
 

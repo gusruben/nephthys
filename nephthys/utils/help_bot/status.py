@@ -215,9 +215,11 @@ def status_outcome(
     delete_after: datetime,
 ) -> Outcome:
     """`review_jam` is the jam under review: the newest jam anyone has
-    submitted to. Without it the bot can't tell, so a human answers."""
+    submitted to. Without it (Airtable couldn't be read) a human answers."""
     copy = _copy()
     summary = submission_summary(rows, orders, config)
+    if not review_jam:
+        return _human(summary, "airtable")
     if not rows:
         return _human(summary, "no_rows")
     live = [r for r in rows if r.status != WITHDRAWN]

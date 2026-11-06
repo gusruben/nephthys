@@ -40,6 +40,7 @@ if your question gets answered, hit the button below to mark it resolved
         faq_still_need_help_button="still need help",
         faq_still_need_help_reply="no worries! a helper will be along soon to take a look",
         buttons_not_yours="only the person who asked can use these buttons",
+        action_failed="oops, that didn't work on my end. please try again in a bit!",
         bot_note="i'm a bot! if this doesn't answer your question, click \"still need help\" and a helper will take a look :)",
         faq_topic_macro="hey (user)! the <{faq_link}|faq> covers this one:\n\n*<{url}|{question}>*\n{answer}",
         faq_topic_not_found="couldn't find a faq question for `{topic}`. the questions are:\n{questions}",

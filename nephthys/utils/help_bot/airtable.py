@@ -18,6 +18,8 @@ from nephthys.utils.env import env
 SUBMISSION_TABLE = "tblmnQSVJBu5EBoVY"
 ORDER_TABLE = "tblqVjQ3ROSx7OuAq"
 API = "https://api.airtable.com/v0"
+# Per request. Each lookup is one or two requests, run alongside the AI call.
+TIMEOUT_SECONDS = 8
 SLACK_ID = re.compile(r"^[UW][A-Z0-9]{5,}$")
 
 SUBMISSION_FIELDS = [
@@ -85,39 +87,48 @@ def _time(value) -> datetime | None:
         return None
 
 
+def _text(value) -> str:
+    """A text field, whatever shape Airtable sends it in."""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list) and value and isinstance(value[0], str):
+        return value[0].strip()
+    return ""
+
+
 def submission_from_record(record: dict) -> Submission:
-    f = record.get("fields", {})
+    f = record.get("fields") or {}
     return Submission(
         id=record["id"],
         created_at=_time(record.get("createdTime"))
         or datetime.min.replace(tzinfo=timezone.utc),
-        title=(f.get("game_title") or "").strip() or "your game",
-        jam=f.get("jam") or "",
-        code_url=(f.get("code_url") or "").strip().lower().rstrip("/"),
-        status=f.get("review_status") or "",
+        title=_text(f.get("game_title")) or "your game",
+        jam=_text(f.get("jam")),
+        code_url=_text(f.get("code_url")).lower().rstrip("/"),
+        status=_text(f.get("review_status")),
         spotchecked=bool(f.get("augie_spotchecked")),
         dm_queued=bool(f.get("action_send_approved_dm")),
         dm_sent_at=_time(f.get("approved_dm_sent_at")),
-        notes=(f.get("notes") or "").strip(),
-        playable_url=(f.get("playable_url") or "").strip(),
+        notes=_text(f.get("notes")),
+        playable_url=_text(f.get("playable_url")),
     )
 
 
 def order_from_record(record: dict) -> Order:
-    f = record.get("fields", {})
+    f = record.get("fields") or {}
     by = f.get("fulfilled_by") or {}
-    prize = f.get("prize") or ""
-    if not prize and f.get("prize_type") == "indie games":
+    prize = _text(f.get("prize"))
+    if not prize and _text(f.get("prize_type")) == "indie games":
         prize = "indie games"
     return Order(
         id=record["id"],
-        jam=f.get("jam") or "",
+        jam=_text(f.get("jam")),
         prize=prize or "prize",
-        prize_type=f.get("prize_type") or "",
-        status=f.get("status") or "not fulfilled",
-        info=(f.get("user_fulfillment_info") or "").strip(),
-        fulfilled_by_name=by.get("name", "") if isinstance(by, dict) else "",
-        fulfilled_by_email=by.get("email", "") if isinstance(by, dict) else "",
+        prize_type=_text(f.get("prize_type")),
+        status=_text(f.get("status")) or "not fulfilled",
+        info=_text(f.get("user_fulfillment_info")),
+        fulfilled_by_name=_text(by.get("name")) if isinstance(by, dict) else "",
+        fulfilled_by_email=_text(by.get("email")) if isinstance(by, dict) else "",
         fulfilled_dm_sent_at=_time(f.get("fulfilled_dm_sent_at")),
     )
 
@@ -143,7 +154,7 @@ async def _list(table: str, formula: str, fields: list[str]) -> list[dict]:
             async with env.session.get(
                 url,
                 headers={"Authorization": f"Bearer {token}"},
-                timeout=ClientTimeout(total=15),
+                timeout=ClientTimeout(total=TIMEOUT_SECONDS),
             ) as res:
                 body = await res.json()
                 if res.status != 200:
@@ -152,7 +163,9 @@ async def _list(table: str, formula: str, fields: list[str]) -> list[dict]:
             raise
         except Exception as e:
             raise AirtableError(str(e)) from e
-        records += body.get("records", [])
+        if not isinstance(body, dict) or not isinstance(body.get("records", []), list):
+            raise AirtableError(f"unexpected Airtable reply: {str(body)[:200]}")
+        records += [r for r in body.get("records", []) if isinstance(r, dict)]
         offset = body.get("offset")
         if not offset:
             break
@@ -165,14 +178,20 @@ async def submissions_for(slack_id: str) -> list[Submission]:
     records = await _list(
         SUBMISSION_TABLE, f"{{slack_id}}='{slack_id}'", SUBMISSION_FIELDS
     )
-    return [submission_from_record(r) for r in records]
+    try:
+        return [submission_from_record(r) for r in records]
+    except Exception as e:
+        raise AirtableError(f"couldn't read a submission row: {e}") from e
 
 
 async def orders_for(slack_id: str) -> list[Order]:
     if not SLACK_ID.match(slack_id):
         return []
     records = await _list(ORDER_TABLE, f"{{slack_id}}='{slack_id}'", ORDER_FIELDS)
-    return [order_from_record(r) for r in records]
+    try:
+        return [order_from_record(r) for r in records]
+    except Exception as e:
+        raise AirtableError(f"couldn't read an order row: {e}") from e
 
 
 _review_jam: tuple[float, str] | None = None
@@ -202,15 +221,15 @@ async def review_jam() -> str | None:
         async with env.session.get(
             url,
             headers={"Authorization": f"Bearer {token}"},
-            timeout=ClientTimeout(total=15),
+            timeout=ClientTimeout(total=TIMEOUT_SECONDS),
         ) as res:
             body = await res.json()
             if res.status != 200:
                 raise AirtableError(f"Airtable {res.status}: {body}")
-        jam = (body.get("records") or [{}])[0].get("fields", {}).get("jam")
+        jam = _text((body.get("records") or [{}])[0].get("fields", {}).get("jam"))
     except Exception as e:
         logging.warning(f"Failed to read the jam under review: {e}")
         return _review_jam[1] if _review_jam else None
     if jam:
         _review_jam = (time.monotonic(), jam)
-    return jam
+    return jam or None

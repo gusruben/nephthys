@@ -1,3 +1,5 @@
+import logging
+
 from slack_sdk.web.async_client import AsyncWebClient
 
 from nephthys.database.tables import CategoryTag
@@ -6,10 +8,15 @@ from nephthys.utils.env import env
 
 
 async def help_bot_context_lines(msg_ts: str) -> list[str]:
+    """Never raises: the ticket post goes out without the lines instead."""
     # Imported here: events.help_bot imports this module
-    from nephthys.events.help_bot import help_bot_context_lines as lines
+    try:
+        from nephthys.events.help_bot import help_bot_context_lines as lines
 
-    return await lines(msg_ts)
+        return await lines(msg_ts)
+    except Exception as e:
+        logging.error(f"Help bot ticket post lines failed msg_ts={msg_ts} error={e}")
+        return []
 
 
 async def backend_message_blocks(

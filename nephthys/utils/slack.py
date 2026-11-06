@@ -36,6 +36,7 @@ from nephthys.events.help_bot import ANSWERED_ACTION
 from nephthys.events.help_bot import handle_answered_button
 from nephthys.events.help_bot import handle_need_help_button
 from nephthys.events.help_bot import NEED_HELP_ACTION
+from nephthys.events.help_bot import tell_clicker_it_failed
 from nephthys.events.message_creation import on_message
 from nephthys.events.message_deletion import on_message_deletion
 from nephthys.options.category_tags import get_category_tags
@@ -66,7 +67,11 @@ async def route_test_channel(body: Dict[str, Any], next):
     Bolt runs listeners after the global middleware has returned, in a task
     created from this request's context, so the flag is set here (not in a
     `with` block) and set every time, so it never carries over."""
-    set_test_scope(env.is_test_channel(_request_channel(body)))
+    try:
+        set_test_scope(env.is_test_channel(_request_channel(body)))
+    except Exception as e:
+        logging.error(f"Test channel routing failed, using the real channels: {e}")
+        set_test_scope(False)
     await next()
 
 
@@ -217,6 +222,16 @@ async def assign_category_tag(
 @app.action("reopen-button")
 async def reopen_ticket(ack: AsyncAck, body: Dict[str, Any], client: AsyncWebClient):
     await ack()
+    if not env.transcript.help_bot:
+        return await _reopen_ticket(body, client)
+    # The help bot's "still need help" on status answers is this button
+    try:
+        await _reopen_ticket(body, client)
+    except Exception as e:
+        await tell_clicker_it_failed(body, client, e)
+
+
+async def _reopen_ticket(body: Dict[str, Any], client: AsyncWebClient):
     ticket_id = int(body["actions"][0]["value"])
     slack_id = body["user"]["id"]
     if not (ticket := await Ticket.objects().get(Ticket.id == ticket_id)):

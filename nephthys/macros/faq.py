@@ -1,3 +1,5 @@
+import logging
+
 from nephthys.database.tables import Ticket
 from nephthys.database.tables import User
 from nephthys.macros.types import ReplyMacro
@@ -27,6 +29,23 @@ class FAQ(ReplyMacro):
         if not (topic and copy and env.new_flow_enabled()):
             return await super().run(ticket, helper, **kwargs)
 
+        try:
+            await self._run_topic(ticket, helper, topic)
+        except Exception as e:
+            logging.error(f"?faq {topic} failed ticket_id={ticket.id} error={e}")
+            try:
+                await env.slack_client.chat_postEphemeral(
+                    channel=env.slack_help_channel,
+                    thread_ts=ticket.msg_ts,
+                    user=helper.slack_id,
+                    text=copy.action_failed,
+                )
+            except Exception:
+                pass
+
+    async def _run_topic(self, ticket: Ticket, helper: User, topic: str) -> None:
+        copy = env.transcript.help_bot
+        assert copy
         entry = faq.find_faq_entry(topic)
         if not entry:
             await env.slack_client.chat_postEphemeral(
