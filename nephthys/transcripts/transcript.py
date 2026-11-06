@@ -47,6 +47,7 @@ class HelpBotCopy(BaseModel):
     status_unreviewed: str
     status_approved: str
     status_dm_sent: str
+    # Replaces bot_note on answers the bot resolves itself (they delete in 24h)
     status_footer: str
 
     # Order lines, used by the tracking answers

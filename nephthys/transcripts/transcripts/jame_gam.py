@@ -61,7 +61,9 @@ if your question gets answered, hit the button below to mark it resolved
         status_unreviewed=f"submitted, but not reviewed yet. reviews can take 3 to 4 weeks, and you'll get a dm from <@{JAMEGAM_BOT}> as soon as it's done!",
         status_approved=f"approved, nice work! your prize dm from <@{JAMEGAM_BOT}> is coming soon",
         status_dm_sent=f"approved, and your prize dm already went out! check your dms from <@{JAMEGAM_BOT}>",
-        status_footer='this thread deletes itself in 24 hours unless you click "still need help"',
+        # Augie's own wording too. Replaces bot_note on answers that delete
+        # themselves after 24h (status and tracking)
+        status_footer="i'm a bot! if this doesn't answer your question, click \"still need help\" and a helper will take a look :)\n(otherwise, this thread will delete itself in 24 hours!)",
         # ---- order lines (tracking) ----
         order_not_fulfilled="it hasn't been sent yet",
         order_processing="it's being processed right now!",

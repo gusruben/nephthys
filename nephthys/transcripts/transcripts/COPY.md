@@ -64,11 +64,11 @@ Anything else is a normal ticket for a human, and the ticket post still shows wh
 | `status_unreviewed` | not reviewed yet (no queue count, since reviews don't go in order) | submitted, but not reviewed yet. reviews can take 3 to 4 weeks, and you'll get a dm from @jame gam as soon as it's done! |
 | `status_approved` | Approved or Prize Only, prize DM not sent yet (not spotchecked, spotchecked, or queued) | approved, nice work! your prize dm from @jame gam is coming soon |
 | `status_dm_sent` | the prize DM went out | approved, and your prize dm already went out! check your dms from @jame gam |
-| `status_footer` | small grey line under every answer the bot resolves itself (status and tracking), under `bot_note`. The button under it is "still need help" (`faq_still_need_help_button`), which reopens the ticket | this thread deletes itself in 24 hours unless you click "still need help" |
+| `status_footer` | the one grey note under every answer the bot resolves itself (status and tracking), in place of `bot_note`, since those threads delete themselves. Augie's own wording. The button under it is "still need help" (`faq_still_need_help_button`), which reopens the ticket | i'm a bot! if this doesn't answer your question, click "still need help" and a helper will take a look :)<br>(otherwise, this thread will delete itself in 24 hours!) |
 
 ## Tracking
 
-These are for "where's my prize" and "can i get tracking". If they name the prize ("my blahaj"), the bot answers about that order and leaves it for a human when there's no matching order. A prize from an older jam ("where's my gmtk blahaj") always goes to a human. Otherwise it covers their orders from the newest jam they ordered in. Canceled orders are skipped, and sticker questions are always for a human (stickers aren't prize orders). Someone with no order gets the status answer instead. `bot_note` and a "still need help" button go under each public reply.
+These are for "where's my prize" and "can i get tracking". If they name the prize ("my blahaj"), the bot answers about that order and leaves it for a human when there's no matching order. A prize from an older jam ("where's my gmtk blahaj") always goes to a human. Otherwise it covers their orders from the newest jam they ordered in. Canceled orders are skipped, and sticker questions are always for a human (stickers aren't prize orders). Someone with no order gets the status answer instead. Each public reply gets a "still need help" button and one grey note: `status_footer` on the answers that resolve and delete, `bot_note` on the ping answer.
 
 | string | when | example |
 |---|---|---|

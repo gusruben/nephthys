@@ -164,7 +164,13 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("reopen-button", str(answer["blocks"]))
         self.assertIn("'still need help'", str(answer["blocks"]))
         self.assertNotIn("'reopen'", str(answer["blocks"]))
-        self.assertIn("deletes itself in 24 hours", str(answer["blocks"]))
+        self.assertIn(
+            "this thread will delete itself in 24 hours!", str(answer["blocks"])
+        )
+        # one grey note, not bot_note plus a footer
+        self.assertEqual(
+            [b["type"] for b in answer["blocks"]], ["section", "context", "actions"]
+        )
         self.assertIn("a helper will take a look :)", str(answer["blocks"]))
 
         ticket = await Ticket.objects().where(Ticket.id == ticket.id).first()

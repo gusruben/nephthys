@@ -255,7 +255,8 @@ async def act_on_outcome(
             outcome.answer,
             client,
             blocks=[
-                *_answer_blocks(outcome.answer),
+                # One note that also says the thread deletes itself
+                Section(outcome.answer),
                 Context(elements=[Text(copy.status_footer)]),
                 # Resolved, so "still need help" reopens it (the existing
                 # reopen action)
