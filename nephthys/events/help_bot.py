@@ -149,6 +149,7 @@ async def _run_help_bot(
             question=entry.question
         )
         reply = copy.faq_answer.format(
+            faq_link=env.transcript.faq_link,
             url=faq_section_url(entry),
             question=faq_link_label(entry),
             # The template quotes the answer, so every line needs the quote
@@ -240,7 +241,10 @@ async def act_on_outcome(
             fulfiller=fulfiller
         )
         info.answer_ts = await post_reply(
-            ticket, outcome.answer, client, blocks=_answer_blocks(outcome.answer)
+            ticket,
+            outcome.answer,
+            client,
+            blocks=[*_answer_blocks(outcome.answer), need_help_button(ticket.id)],
         )
         await _send_private(ticket, asker_id, outcome.private, client)
         return
@@ -253,10 +257,12 @@ async def act_on_outcome(
             blocks=[
                 *_answer_blocks(outcome.answer),
                 Context(elements=[Text(copy.status_footer)]),
+                # Resolved, so "still need help" reopens it (the existing
+                # reopen action)
                 Actions(
                     elements=[
                         Button(
-                            text=copy.reopen_button,
+                            text=copy.faq_still_need_help_button,
                             action_id="reopen-button",
                             value=f"{ticket.id}",
                         )
@@ -270,7 +276,10 @@ async def act_on_outcome(
         info.delete_after = delete_after
     else:
         info.answer_ts = await post_reply(
-            ticket, outcome.answer, client, blocks=_answer_blocks(outcome.answer)
+            ticket,
+            outcome.answer,
+            client,
+            blocks=[*_answer_blocks(outcome.answer), need_help_button(ticket.id)],
         )
 
 
@@ -336,6 +345,21 @@ async def post_reply(
         raise ThreadGoneError()
     await BotMessage(ts=ts, channel_id=env.slack_help_channel, ticket=ticket.id).save()
     return ts
+
+
+def need_help_button(ticket_id: int) -> Actions:
+    """Just "still need help", for answers on a ticket that stays open."""
+    copy = env.transcript.help_bot
+    assert copy
+    return Actions(
+        elements=[
+            Button(
+                text=copy.faq_still_need_help_button,
+                action_id=NEED_HELP_ACTION,
+                value=f"{ticket_id}",
+            )
+        ]
+    )
 
 
 def answer_buttons(ticket_id: int) -> Actions:
@@ -460,14 +484,10 @@ async def _ticket_for_button(body: dict[str, Any]) -> tuple[Ticket, User] | None
     return ticket, user
 
 
-async def _clear_buttons(body: dict[str, Any], context_text: str | None) -> None:
-    """Swap the answer's buttons for a short context line (or nothing)."""
+async def _clear_buttons(body: dict[str, Any]) -> None:
+    """Take the buttons off the answer once one was clicked."""
     message = body.get("message") or {}
     blocks = [b for b in message.get("blocks", []) if b.get("type") != "actions"]
-    if context_text:
-        blocks.append(
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": context_text}]}
-        )
     try:
         await env.slack_client.chat_update(
             channel=body["channel"]["id"],
@@ -499,7 +519,7 @@ async def handle_answered_button(body: dict[str, Any], client: AsyncWebClient):
             text=copy.buttons_not_yours,
         )
         return
-    await _clear_buttons(body, None)
+    await _clear_buttons(body)
     if ticket.status != TicketStatus.CLOSED:
         await resolve(ticket.msg_ts, user.slack_id, client)
 
@@ -518,9 +538,7 @@ async def handle_need_help_button(body: dict[str, Any], client: AsyncWebClient):
             text=copy.buttons_not_yours,
         )
         return
-    await _clear_buttons(
-        body, copy.faq_still_need_help_context.format(user_id=user.slack_id)
-    )
+    await _clear_buttons(body)
     await HelpBotTicket.update({HelpBotTicket.still_need_help: True}).where(
         HelpBotTicket.ticket == ticket.id
     )

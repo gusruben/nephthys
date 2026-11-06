@@ -19,8 +19,6 @@ class HelpBotCopy(BaseModel):
     faq_answered_button: str
     faq_still_need_help_button: str
     faq_still_need_help_reply: str
-    # Replaces the buttons once clicked ({user_id})
-    faq_still_need_help_context: str
     buttons_not_yours: str
     # Small line under every answer the bot gives on its own, saying it's the bot
     bot_note: str
@@ -40,6 +38,9 @@ class HelpBotCopy(BaseModel):
     form_not_open: str
 
     # Status of their submission in the jam under review
+    # How a game's title shows ({itch_url}, {title}); used as {game} below
+    game_link: str
+    game_no_link: str
     status_intro_one: str
     status_intro_many: str
     status_line_many: str
@@ -47,7 +48,6 @@ class HelpBotCopy(BaseModel):
     status_approved: str
     status_dm_sent: str
     status_footer: str
-    reopen_button: str
 
     # Order lines, used by the tracking answers
     order_not_fulfilled: str

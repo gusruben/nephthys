@@ -113,6 +113,16 @@ def state_label(row: Submission) -> str:
     )
 
 
+def game_text(row: Submission) -> str:
+    """The game's title, linked to its itch page when the row has one."""
+    copy = _copy()
+    title = row.title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    url = row.playable_url
+    if url.startswith(("https://", "http://")) and "|" not in url and ">" not in url:
+        return copy.game_link.format(itch_url=url, title=title.replace("|", "/"))
+    return copy.game_no_link.format(title=title)
+
+
 def _group_key(row: Submission) -> str:
     return row.code_url or row.title.lower()
 
@@ -155,7 +165,7 @@ def submission_summary(
         return copy.ticket_post_no_submission
     jam = max(r.jam for r in shown)
     jam_name = config.jam_name(jam) if config else jam
-    parts = [f"*{r.title}* {state_label(r)}" for r in shown if r.jam == jam]
+    parts = [f"{game_text(r)} {state_label(r)}" for r in shown if r.jam == jam]
     for order in orders:
         if order.jam == jam:
             parts.append(
@@ -222,11 +232,11 @@ def status_outcome(
     lines = [(r, getattr(copy, REPLY_FOR_STATE[row_state(r)])) for r in current]
     if len(lines) == 1:
         row, line = lines[0]
-        body = copy.status_intro_one.format(title=row.title, line=line)
+        body = copy.status_intro_one.format(game=game_text(row), line=line)
     else:
         body = copy.status_intro_many.format(
             lines="\n".join(
-                copy.status_line_many.format(title=row.title, line=line)
+                copy.status_line_many.format(game=game_text(row), line=line)
                 for row, line in lines
             )
         )

@@ -158,11 +158,14 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         )
         answer = posts[2]
         self.assertIn(
-            "approved! your prize dm from <@U0BB0FJU7DM> is coming soon", answer["text"]
+            "approved, nice work! your prize dm from <@U0BB0FJU7DM> is coming soon",
+            answer["text"],
         )
         self.assertIn("reopen-button", str(answer["blocks"]))
+        self.assertIn("'still need help'", str(answer["blocks"]))
+        self.assertNotIn("'reopen'", str(answer["blocks"]))
         self.assertIn("deletes itself in 24 hours", str(answer["blocks"]))
-        self.assertIn("i'm the help bot", str(answer["blocks"]))
+        self.assertIn("a helper will take a look :)", str(answer["blocks"]))
 
         ticket = await Ticket.objects().where(Ticket.id == ticket.id).first()
         self.assertEqual(ticket.status, "CLOSED")
@@ -296,7 +299,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         answer = self.slack.named("chat_postMessage")[-1]
         self.assertIn("> full sized! (1 meter)", answer["text"])
         self.assertIn("did that help?", answer["text"])
-        self.assertIn("i'm the help bot", str(answer["blocks"]))
+        self.assertIn("a helper will take a look :)", str(answer["blocks"]))
         self.assertFalse(answer["unfurl_links"])
         self.assertIn("help-bot-answered", str(answer["blocks"]))
 
@@ -318,6 +321,11 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
             .first()
         )
         self.assertTrue(info.still_need_help)
+        # The buttons come off the answer, with nothing in their place
+        cleared = [
+            u for u in self.slack.named("chat_update") if u["channel"] == "CTESTHELP"
+        ][-1]
+        self.assertEqual([b["type"] for b in cleared["blocks"]], ["section", "context"])
         self.assertIn("didn't help", str(self.slack.named("chat_update")[-1]["blocks"]))
 
         # Someone else can't use the buttons
@@ -384,6 +392,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(ping), 1)
         self.assertTrue(ping[0]["text"].startswith("<@UGABIN> <@UKID>"))
         self.assertIn("pinged the person who sent it", posts[-1]["text"])
+        self.assertIn("help-bot-need-help", str(posts[-1]["blocks"]))
         self.assertEqual(ticket.status, "OPEN")
 
     async def test_middleware_routes_each_request(self):

@@ -24,6 +24,7 @@ SUBMISSION_FIELDS = [
     "game_title",
     "jam",
     "code_url",
+    "playable_url",
     "review_status",
     "augie_spotchecked",
     "action_send_approved_dm",
@@ -58,6 +59,8 @@ class Submission:
     dm_queued: bool
     dm_sent_at: datetime | None
     notes: str
+    # The game's itch page
+    playable_url: str = ""
 
 
 @dataclass
@@ -96,6 +99,7 @@ def submission_from_record(record: dict) -> Submission:
         dm_queued=bool(f.get("action_send_approved_dm")),
         dm_sent_at=_time(f.get("approved_dm_sent_at")),
         notes=(f.get("notes") or "").strip(),
+        playable_url=(f.get("playable_url") or "").strip(),
     )
 
 

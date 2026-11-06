@@ -48,6 +48,7 @@ class FAQ(ReplyMacro):
             (await get_user_profile(sender.slack_id)).display_name() if sender else ""
         )
         reply = copy.faq_topic_macro.format(
+            faq_link=env.transcript.faq_link,
             url=faq_section_url(entry),
             question=faq_link_label(entry),
             answer=entry.answer,

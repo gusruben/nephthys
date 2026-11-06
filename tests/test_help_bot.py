@@ -260,8 +260,20 @@ class StatusTests(unittest.TestCase):
                 row(id="rec2", title="Second", code_url="https://github.com/a/second"),
             ]
         )
-        self.assertIn("- *Rooted*: approved!", out.answer)
+        self.assertIn("- *Rooted*: approved, nice work!", out.answer)
         self.assertIn("- *Second*: submitted", out.answer)
+
+    def test_game_links_to_itch(self):
+        url = "https://kid.itch.io/rooted"
+        out = status([row(status="Approved", playable_url=url)])
+        self.assertIn(f"here's what i can see for <{url}|Rooted>:", out.answer)
+        self.assertIn(f"<{url}|Rooted> approved", out.summary)
+        # no link (or a broken one): plain bold
+        for bad in ["", "kid.itch.io/rooted", "https://x|y"]:
+            out = status([row(status="Approved", playable_url=bad)])
+            self.assertIn("here's what i can see for *Rooted*:", out.answer, bad)
+        out = status([row(title="a <b> & c", playable_url=url)])
+        self.assertIn(f"<{url}|a &lt;b&gt; &amp; c>", out.answer)
 
     def test_summary_names_the_jam(self):
         s = submission_summary([row(status="Approved")], [order()], config())
@@ -300,7 +312,7 @@ class TrackingTests(unittest.TestCase):
         out = tracking_outcome([row()], [order()], config(), DELETE_AFTER)
         self.assertTrue(out.resolve)
         self.assertEqual(
-            out.answer, "about your blahaj plushie: it hasn't been sent yet"
+            out.answer, "i checked on your blahaj plushie: it hasn't been sent yet"
         )
 
     def test_fulfilled_with_tracking_is_private(self):
@@ -607,6 +619,8 @@ class CopyRulesTests(unittest.TestCase):
                 "status",
                 "jam",
                 "item",
+                "faq_link",
+                "game",
             ]
         }
         for name, text in self.strings():
