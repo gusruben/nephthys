@@ -68,11 +68,11 @@ Pick exactly one route:
   A question about how the process works or whether something is normal, with no ask about their own submission ("do you tell us either way", "how long does review take", "is it normal that my teammate got a dm and i didn't") is "faq" when an FAQ answers it.
 - "tracking": the asker wants to know where THEIR OWN prize is: tracking number, has it shipped or been sent, when will it arrive, they haven't received it. This includes digital prizes (game keys, codes, gift cards). If they name the prize, return it in "item". Stickers are not a prize order: sticker questions are "human".
 - "jam_facts": a question about the current or next jam's facts. Also return which facts in "facts":
-  - jam_dates: which jam is next or running, when it starts or ends, how often jams happen, whether the jam's itch page is up, and whether they can still join or start (joining late is not a late submission). Only the current or next jam: a question about a past jam's dates is "human".
+  - jam_dates: which jam is next or running, when it starts or ends, how often jams happen, whether the jam's itch page is up, and whether they can still join or start (joining late is not a late submission). Only the current or next jam: a question about a past jam ("the october jam", "last month's jam") is "human".
   - theme: ONLY when the post directly asks what the theme is, or when or where the theme comes out. If the post mentions the theme but asks something else (does my game have to fit it, is my idea ok for it, can i ignore it, what does it mean), do not use theme; that post is "human" (or "faq" if an FAQ answers it).
   - form: whether the jame gam submission form is open yet, or when it closes.
   How many days they get to pick a prize, or when the shop closes, is "faq", not jam_facts.
-- "faq": a general question that one of the FAQ questions below answers. Return that FAQ question's exact text in "faq". Lean slightly toward this route: if an FAQ answer would genuinely help, pick it even if a human might add a little more.
+- "faq": a general question that one of the FAQ questions below answers. Return that FAQ question's exact text in "faq". Using work from before the jam (an old project, a prototype, something started early) is answered by the FAQ question about submitting to other events. Lean slightly toward this route: if an FAQ answer would genuinely help, pick it even if a human might add a little more.
 - "human": needs a person's judgment or account access: appeals or "why was I rejected", late or missed submissions and asking for exceptions or extensions, customs or duties or shipping-to-my-country exceptions, changing or cancelling an order (address, prize, size), errors or bugs on the form, the site or itch, a tracking link that doesn't work, a prize marked delivered or sent that never arrived (or arrived lost, damaged or wrong), a missed prize pick window, something about their submission or order that looks wrong or mixed up, problems with an account, identity verification, reviewer or helper applications and reviewer pay, or anything the FAQ and the routes above don't cover.
 - "none": not a question for helpers: thanks, chatter, introductions, looking for teammates, announcements.
 
@@ -133,6 +133,15 @@ def _match_entry(question: str | None, entries: list[FaqEntry]) -> FaqEntry | No
         if entry.question.lower() == key:
             return entry
     return entry_by_question(question)
+
+
+# About a jam that already happened: the config only knows the current or
+# next one, so a jam facts answer would be about the wrong jam
+PAST_JAM = re.compile(
+    r"\b(when|how long|what)\b[^.?!]{0,30}\b(last|previous|past|first|very first)\s+(month'?s?\s+|year'?s?\s+)?(jam|jame gam|one)\b"
+    r"|\b(did|was|were)\b[^.?!]{0,40}\bjam\b[^.?!]{0,25}\b(run|end|start|last|go|happen)",
+    re.IGNORECASE,
+)
 
 
 # Asks whether the asker's OWN submission is done, approved or reviewed.
@@ -208,6 +217,10 @@ def apply_guards(text: str, result: Classification) -> Classification:
                 raw=result.raw,
             )
     if result.confidence < env.ai_jamegam_min_confidence:
+        return Classification(
+            route="human", confidence=result.confidence, raw=result.raw
+        )
+    if result.route == "jam_facts" and PAST_JAM.search(text):
         return Classification(
             route="human", confidence=result.confidence, raw=result.raw
         )

@@ -476,6 +476,21 @@ class CaseRunGuardTests(unittest.TestCase):
         ]:
             self.assertEqual(self.guard(text, "faq").route, "faq", text)
 
+    def test_past_jams_get_no_jam_facts(self):
+        for text in [
+            "how long did the october jam run for",
+            "when did last months jam end, trying to remember",
+            "when was the very first jame gam",
+        ]:
+            out = self.guard(text, "jam_facts", facts=["jam_dates"])
+            self.assertEqual(out.route, "human", text)
+        for text in [
+            "when does the next jam start",
+            "is there a jam going on right now",
+        ]:
+            out = self.guard(text, "jam_facts", facts=["jam_dates"])
+            self.assertEqual(out.route, "jam_facts", text)
+
     def test_unfairness_and_currency_are_human(self):
         for text in [
             "its kinda sus that another team got approved in 2 hours, is review rigged",
