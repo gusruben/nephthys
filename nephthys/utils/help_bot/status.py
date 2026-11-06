@@ -31,10 +31,12 @@ from nephthys.utils.help_bot.jam_config import JamConfig
 SHOP_STATUSES = {"Approved", "Prize Only"}
 REJECTED_STATUSES = {"Rejected", "No Prize"}
 WITHDRAWN = "Withdrawn"
-# The detailed states the bot can answer, and which of its three replies each gets
+# The detailed states the bot can answer, and which of its three replies each
+# gets. Approved but not spotchecked is still in review as far as the asker
+# knows (the spotcheck can change the outcome), so it never says approved.
 REPLY_FOR_STATE = {
     "unreviewed": "status_unreviewed",
-    "approved_checking": "status_approved",
+    "approved_checking": "status_unreviewed",
     "approved_ready": "status_approved",
     "approved_queued": "status_approved",
     "approved_dm_sent": "status_dm_sent",
@@ -81,11 +83,11 @@ def row_state(row: Submission) -> str:
     if s in SHOP_STATUSES:
         if row.dm_sent_at:
             return "approved_dm_sent"
+        if not row.spotchecked:
+            return "approved_checking"
         if row.dm_queued:
             return "approved_queued"
-        if row.spotchecked:
-            return "approved_ready"
-        return "approved_checking"
+        return "approved_ready"
     return {
         "Pending": "pending",
         "Needs Augie": "needs_augie",

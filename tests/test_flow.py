@@ -87,7 +87,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         env.session = ClientSession()
         self.env = env
 
-        self.rows = [row(status="Approved")]
+        self.rows = [row(status="Approved", spotchecked=True)]
         self.orders: list = []
         self.route = "status"
         self.faq_entry = None
@@ -187,7 +187,9 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         # The ticket post was updated with the help bot lines, not deleted
         update = self.slack.named("chat_update")[-1]
         self.assertEqual(update["channel"], "CTESTTICKETS")
-        self.assertIn("approved, waiting on the spotcheck", str(update["blocks"]))
+        self.assertIn(
+            "approved and spotchecked, prize dm not sent", str(update["blocks"])
+        )
         self.assertIn("answered their status and resolved it", str(update["blocks"]))
         self.assertFalse(
             [

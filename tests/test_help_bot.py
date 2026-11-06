@@ -174,12 +174,24 @@ class StatusTests(unittest.TestCase):
         self.assertNotIn("before yours", out.answer)  # no queue count
         self.assertIn("deletes", out.action)
 
-    def test_approved_any_stage_is_one_reply(self):
+    def test_not_spotchecked_reads_as_in_review(self):
         for r in [
             row(status="Approved"),
+            row(status="Prize Only"),
+            row(status="Approved", dm_queued=True),
+        ]:
+            out = status([r])
+            self.assertTrue(out.resolve)
+            self.assertIn("not reviewed yet", out.answer)
+            self.assertNotIn("approved", out.answer)
+            # helpers still see the real state
+            self.assertIn("approved, waiting on the spotcheck", out.summary)
+
+    def test_approved_once_spotchecked(self):
+        for r in [
             row(status="Approved", spotchecked=True),
             row(status="Approved", spotchecked=True, dm_queued=True),
-            row(status="Prize Only"),
+            row(status="Prize Only", spotchecked=True),
         ]:
             out = status([r])
             self.assertTrue(out.resolve)
@@ -242,7 +254,12 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(status([row(status="Withdrawn")]).reason, "only_withdrawn")
 
     def test_withdrawn_copy_is_ignored(self):
-        out = status([row(status="Withdrawn"), row(id="rec2", status="Approved")])
+        out = status(
+            [
+                row(status="Withdrawn"),
+                row(id="rec2", status="Approved", spotchecked=True),
+            ]
+        )
         self.assertIn("approved", out.answer)
 
     def test_conflicting_rows(self):
@@ -256,7 +273,7 @@ class StatusTests(unittest.TestCase):
     def test_two_games(self):
         out = status(
             [
-                row(status="Approved"),
+                row(status="Approved", spotchecked=True),
                 row(id="rec2", title="Second", code_url="https://github.com/a/second"),
             ]
         )
