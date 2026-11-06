@@ -78,6 +78,11 @@ async def route_test_channel(body: Dict[str, Any], next):
 @app.event("message")
 async def handle_message(event: Dict[str, Any], client: AsyncWebClient):
     logging.debug(f"Message event: {event}")
+    logging.info(
+        f"Message event channel={event.get('channel')} subtype={event.get('subtype')} "
+        f"thread={bool(event.get('thread_ts'))} bot={'bot_id' in event} "
+        f"watched={event.get('channel') in env.help_channels()}"
+    )
     is_message_deletion = (
         event.get("subtype") == "message_changed"
         and event["message"].get("subtype") == "tombstone"
