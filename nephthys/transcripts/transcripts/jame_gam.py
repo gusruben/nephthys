@@ -35,7 +35,7 @@ if your question gets answered, hit the button below to mark it resolved
         # ---- FAQ answers ----
         # faq_answer, jam_ended, theme_upcoming, form_not_open, form_open,
         # buttons_not_yours and bot_note are Augie's own wording: leave them be.
-        faq_answer="i think the <{faq_link}|faq> might answer this one!\n\n> *<{url}|{question}>*\n> {answer}\n\ndid that help?",
+        faq_answer="i think the faq might answer this one!\n\n> *<{url}|{question}>*\n> {answer}\n\ndid that help?",
         faq_answered_button="that answered it",
         faq_still_need_help_button="still need help",
         faq_still_need_help_reply="no worries! a helper will be along soon to take a look",

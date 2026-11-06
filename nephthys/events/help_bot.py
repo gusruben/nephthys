@@ -245,8 +245,22 @@ async def _answer(
 def jam_context(config: JamConfig | None, review_jam: str | None) -> str:
     """Tells the classifier which jam is under review, so it can tell when a
     post is about an older one."""
+    hosted = ""
+    if config and config.jam.hosted:
+        # "submit to both jams" means the partner's itch jam plus the jame gam
+        # form, which the other-events FAQ answers with "sorry, no!"
+        hosted = (
+            f"The current jam, {config.jam.displayName}, is run together with a partner on itch. "
+            "Entering it means submitting the game on its itch jam page AND filling out the jame gam "
+            "(hack club) submission form, so a question about submitting to both jams, submitting twice, "
+            'or "the other jam" is about that, and is answered by the FAQ question about how to submit. '
+            "The FAQ question about submitting to another game jam or event is only for entering a "
+            "different, unrelated event as well: never pick it for a post that asks about submitting to both "
+            "jams, even if the post also asks something else. Whether the jame gam form is open yet, or when it opens "
+            "or closes, is still jam_facts form."
+        )
     if not review_jam:
-        return ""
+        return hosted
     name = config.jam_name(review_jam) if config else review_jam
     earlier = (
         [f"{v} ({k})" for k, v in config.shop.cycles.items() if k < review_jam]
@@ -256,7 +270,7 @@ def jam_context(config: JamConfig | None, review_jam: str | None) -> str:
     text = f"The jam under review is {name} ({review_jam})."
     if earlier:
         text += " Earlier jams: " + ", ".join(earlier) + ", and older ones."
-    return text
+    return f"{hosted}\n{text}".strip()
 
 
 def _status_or_tracking(
