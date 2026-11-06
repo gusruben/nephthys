@@ -344,7 +344,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         with test_channel_scope(True):
             await handle_answered_button(stranger, self.slack)  # type: ignore
         self.assertIn(
-            "only helpers or the person who asked",
+            "only the person who asked can use these buttons",
             self.slack.named("chat_postEphemeral")[-1]["text"],
         )
 
@@ -399,7 +399,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(len(ping), 1)
         self.assertTrue(ping[0]["text"].startswith("<@UGABIN> <@UKID>"))
-        self.assertIn("pinged the person who sent it", posts[-1]["text"])
+        self.assertIn("a human on the jame gam team will reply", posts[-1]["text"])
         self.assertIn("help-bot-need-help", str(posts[-1]["blocks"]))
         self.assertEqual(ticket.status, "OPEN")
 

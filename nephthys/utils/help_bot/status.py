@@ -331,7 +331,7 @@ def tracking_outcome(
             )
             private.append(
                 copy.tracking_info_private.format(
-                    prize=order.prize, info=order.info.replace("\n", "\n>")
+                    prize=order.prize, info=order.info.replace("\n", "\n> ")
                 )
             )
         else:

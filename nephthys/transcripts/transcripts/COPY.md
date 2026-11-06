@@ -19,7 +19,7 @@ When a new question matches a question in the FAQ canvas, the bot posts the answ
 | `faq_answered_button` | button under the answer. Resolves the ticket the usual way, and the usual `ticket_resolve` message follows | **that answered it** |
 | `faq_still_need_help_button` | button under the answer. Leaves the ticket open. The same label is the button on status and tracking answers, where it reopens the ticket (the existing reopen action) | **still need help** |
 | `faq_still_need_help_reply` | in the thread after "still need help". The buttons come off the answer, with nothing in their place | no worries! a helper will be along soon to take a look |
-| `buttons_not_yours` | only visible to the clicker, when someone other than the asker or a helper clicks either button. Same wording as the bot's existing "Only helpers or the original poster can ..." | only helpers or the person who asked can use these buttons |
+| `buttons_not_yours` | only visible to the clicker, when someone other than the asker or a helper clicks either button. Augie's own wording (helpers can still click them) | only the person who asked can use these buttons |
 
 The same two buttons sit under live jam fact answers (next section). Pick-window questions ("how long do i have to pick my prize") are plain FAQ matches.
 
@@ -72,12 +72,12 @@ These are for "where's my prize" and "can i get tracking". If they name the priz
 
 | string | when | example |
 |---|---|---|
-| `order_not_fulfilled` / `order_processing` / `order_fulfilled` / `order_held_idv` | the `{order}` part of `tracking_not_shipped` | it hasn't been sent yet / it's being processed right now! / it was sent october 20 / it's on hold until your identity verification goes through |
-| `tracking_not_shipped` | not fulfilled, processing, or held for IDV. Resolved, 24h delete | i checked on your blahaj plushie: it hasn't been sent yet |
-| `tracking_info_public` | fulfilled, and the fulfillment note has a link, a tracking number, or is a digital prize (code, gift card, "check your dms"). Resolved, 24h delete | your blahaj plushie was sent october 20! i've put the shipping details just below, only you can see them |
-| `tracking_info_private` | right after, only visible to the asker (the note can contain their email) | here's what the person who sent your blahaj plushie wrote:<br>> https://tools.usps.com/go/TrackConfirmAction?tLabels=9334... |
-| `tracking_pinged_public` | fulfilled with no tracking. The ticket stays open | your blahaj plushie was sent october 20 but there's no tracking on it yet, so i've pinged the person who sent it. they'll reply here soon! |
-| `tracking_ping_team` | in #jame-gam-tickets, as a reply on that ticket's post. The fulfiller comes from the order's `fulfilled_by`, matched to Slack by email | @Gabin @kid is asking for tracking on their blahaj plushie, marked sent october 20 with no tracking. [order](#) \| [thread](#) |
+| `order_not_fulfilled` / `order_processing` / `order_fulfilled` / `order_held_idv` | the `{order}` part of `tracking_not_shipped` | it hasn't been sent yet / it's being processed right now! / it was sent on october 20 / it's on hold until your identity verification goes through |
+| `tracking_not_shipped` | not fulfilled, processing, or held for IDV. Resolved, 24h delete | i checked on your 'blahaj plushie': it hasn't been sent yet |
+| `tracking_info_public` | fulfilled, and the fulfillment note has a link, a tracking number, or is a digital prize (code, gift card, "check your dms"). Resolved, 24h delete | your 'blahaj plushie' was sent on october 20! |
+| `tracking_info_private` | right after, only visible to the asker (the note can contain their email). Augie's own wording | psst! the person who sent your 'blahaj plushie' wrote:<br>> https://tools.usps.com/go/TrackConfirmAction?tLabels=9334... |
+| `tracking_pinged_public` | fulfilled with no tracking. The ticket stays open | your 'blahaj plushie' was sent on october 20 but there's no tracking on it yet. a human on the jame gam team will reply in this thread with more info! |
+| `tracking_ping_team` | in #jame-gam-tickets, as a reply on that ticket's post. The fulfiller comes from the order's `fulfilled_by`, matched to Slack by email | @Gabin @kid is asking for tracking on their blahaj plushie, marked sent on october 20 with no tracking. [order](#) \| [thread](#) |
 
 ## Ticket posts in #jame-gam-tickets (helpers only)
 

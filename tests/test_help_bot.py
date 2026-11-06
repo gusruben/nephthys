@@ -329,7 +329,7 @@ class TrackingTests(unittest.TestCase):
         out = tracking_outcome([row()], [order()], config(), DELETE_AFTER)
         self.assertTrue(out.resolve)
         self.assertEqual(
-            out.answer, "i checked on your blahaj plushie: it hasn't been sent yet"
+            out.answer, "i checked on your 'blahaj plushie': it hasn't been sent yet"
         )
 
     def test_fulfilled_with_tracking_is_private(self):
@@ -353,7 +353,7 @@ class TrackingTests(unittest.TestCase):
         out = tracking_outcome([row()], [o], config(), DELETE_AFTER)
         self.assertFalse(out.resolve)
         self.assertIs(out.ping_order, o)
-        self.assertIn("pinged the person who sent it", out.answer)
+        self.assertIn("a human on the jame gam team will reply", out.answer)
 
     def test_no_contact_goes_to_human(self):
         o = order(

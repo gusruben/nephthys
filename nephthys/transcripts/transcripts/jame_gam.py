@@ -39,7 +39,7 @@ if your question gets answered, hit the button below to mark it resolved
         faq_answered_button="that answered it",
         faq_still_need_help_button="still need help",
         faq_still_need_help_reply="no worries! a helper will be along soon to take a look",
-        buttons_not_yours="only helpers or the person who asked can use these buttons",
+        buttons_not_yours="only the person who asked can use these buttons",
         bot_note="i'm a bot! if this doesn't answer your question, click \"still need help\" and a helper will take a look :)",
         faq_topic_macro="hey (user)! the <{faq_link}|faq> covers this one:\n\n*<{url}|{question}>*\n{answer}",
         faq_topic_not_found="couldn't find a faq question for `{topic}`. the questions are:\n{questions}",
@@ -67,14 +67,15 @@ if your question gets answered, hit the button below to mark it resolved
         # ---- order lines (tracking) ----
         order_not_fulfilled="it hasn't been sent yet",
         order_processing="it's being processed right now!",
-        order_fulfilled="it was sent {date}",
+        order_fulfilled="it was sent on {date}",
         order_held_idv="it's on hold until your identity verification goes through",
         # ---- tracking ----
-        tracking_info_public="your {prize} was sent {date}! i've put the shipping details just below, only you can see them",
-        tracking_info_private="here's what the person who sent your {prize} wrote:\n>{info}",
-        tracking_not_shipped="i checked on your {prize}: {order}",
-        tracking_pinged_public="your {prize} was sent {date} but there's no tracking on it yet, so i've pinged the person who sent it. they'll reply here soon!",
-        tracking_ping_team="{fulfiller} <@{asker}> is asking for tracking on their {prize}, marked sent {date} with no tracking. <{order_url}|order> | <{thread_url}|thread>",
+        # The four tracking replies are Augie's own wording
+        tracking_info_public="your '{prize}' was sent on {date}!",
+        tracking_info_private="psst! the person who sent your '{prize}' wrote:\n> {info}",
+        tracking_not_shipped="i checked on your '{prize}': {order}",
+        tracking_pinged_public="your '{prize}' was sent on {date} but there's no tracking on it yet. a human on the jame gam team will reply in this thread with more info!",
+        tracking_ping_team="{fulfiller} <@{asker}> is asking for tracking on their {prize}, marked sent on {date} with no tracking. <{order_url}|order> | <{thread_url}|thread>",
         # ---- ticket post lines (tickets channel, helpers only) ----
         ticket_post_submission="*submission:* {summary}",
         ticket_post_no_submission="*submission:* none found for this slack id",
