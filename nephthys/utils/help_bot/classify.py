@@ -27,7 +27,11 @@ JUDGMENT_CALL = re.compile(
     r"|wrong (address|size|prize|item)|cancel (my|the)? ?order|refund"
     # A missed prize pick window is an exception request too
     r"|missed (the |my )?(pick|picking|shop|window|chance to pick)|never (got to )?pick(ed)?|shop (already )?closed (for me|before)"
-    r"|pick(ing)? window (closed|ended|passed|is over))",
+    r"|pick(ing)? window (closed|ended|passed|is over)"
+    # Prize currency / amount questions need a person
+    r"|currenc(y|ies)"
+    # Accusations of unfairness go to a person, even when an FAQ fits
+    r"|rigged|unfair|not fair|favou?ritism|playing favou?rites|biased)",
     re.IGNORECASE,
 )
 
@@ -60,7 +64,8 @@ SYSTEM_PROMPT = """You triage new posts in the help channel for jame gam, Hack C
 
 Pick exactly one route:
 - "status": the asker asks or complains about where THEIR OWN submission stands: has mine been reviewed, was mine approved, where is my approval or prize DM, i still haven't heard anything about my game. Use it when they want their own state looked up.
-  A question about how the process works or whether something is normal ("do you tell us either way", "how long does review take", "is it normal that my teammate got a dm and i didn't") is "faq" when an FAQ answers it, even if they mention their own game.
+  If they ask whether THEIR OWN submission is done, approved or reviewed ("is mine done too", "was mine approved", "has mine been looked at"), it is "status", even when the post also mentions a friend or teammate.
+  A question about how the process works or whether something is normal, with no ask about their own submission ("do you tell us either way", "how long does review take", "is it normal that my teammate got a dm and i didn't") is "faq" when an FAQ answers it.
 - "tracking": the asker wants to know where THEIR OWN prize is: tracking number, has it shipped or been sent, when will it arrive, they haven't received it. This includes digital prizes (game keys, codes, gift cards). If they name the prize, return it in "item". Stickers are not a prize order: sticker questions are "human".
 - "jam_facts": a question about the current or next jam's facts. Also return which facts in "facts":
   - jam_dates: which jam is next or running, when it starts or ends, how often jams happen, whether the jam's itch page is up, and whether they can still join or start (joining late is not a late submission). Only the current or next jam: a question about a past jam's dates is "human".
@@ -130,6 +135,18 @@ def _match_entry(question: str | None, entries: list[FaqEntry]) -> FaqEntry | No
     return entry_by_question(question)
 
 
+# Asks whether the asker's OWN submission is done, approved or reviewed.
+# That's a status lookup even when the post also mentions a friend or
+# teammate ("my friend got approved, is mine done too").
+OWN_ROW_ASK = re.compile(
+    r"\b(is|was|has|did|have) (mine|my (game|submission|project|entry|one))( been| gotten| got| also| too)*"
+    r" (done|approved|accepted|reviewed|looked at|checked|through|in)\b"
+    r"|\b(is|was|has|did) mine\b[^.?!]{0,20}\b(too|also|yet|as well)\b"
+    r"|\bwhat about (mine|my (game|submission|project))\b",
+    re.IGNORECASE,
+)
+
+
 # A post that directly asks what the theme is or when it comes out: it
 # mentions the theme, asks about it, and isn't asking whether something fits
 # it, what it means, or whether it can be ignored.
@@ -168,9 +185,8 @@ def apply_guards(text: str, result: Classification) -> Classification:
     to posts that plainly ask what the theme is or when it's out."""
     if result.route in ("human", "none"):
         return result
-    # Anything about their own older jam is for a human (tracking excepted:
-    # orders from any jam can be looked up)
-    if result.older_jam and result.route != "tracking":
+    # Anything about their own older jam is for a human, prizes included
+    if result.older_jam:
         return Classification(
             route="human",
             confidence=result.confidence,
@@ -204,6 +220,11 @@ def apply_guards(text: str, result: Classification) -> Classification:
     ):
         return Classification(
             route="human", confidence=result.confidence, raw=result.raw
+        )
+    # "is mine done too" is a lookup of their own row, not the process FAQ
+    if result.route == "faq" and OWN_ROW_ASK.search(text):
+        return Classification(
+            route="status", confidence=result.confidence, raw=result.raw
         )
     return result
 

@@ -138,9 +138,9 @@ class ClassifyTests(unittest.TestCase):
             )
             out = apply_guards("did anyone get a dm for the cozy fall jam? i didn't", r)
             self.assertEqual((out.route, out.reason), ("human", "older_jam"), route)
-        # orders from any jam can still be looked up
+        # prizes from an older jam too: no order lookup
         r = Classification(route="tracking", confidence=0.9, older_jam=True)
-        self.assertEqual(apply_guards("where's my gmtk blahaj", r).route, "tracking")
+        self.assertEqual(apply_guards("where's my gmtk blahaj", r).route, "human")
 
     def test_low_confidence_is_human(self):
         r = Classification(route="status", confidence=0.4)
@@ -444,6 +444,34 @@ class CaseRunGuardTests(unittest.TestCase):
             "my blahaj arrived damaged",
         ]:
             self.assertEqual(self.guard(text, "tracking").route, "human", text)
+
+    def test_own_row_ask_is_status(self):
+        for text in [
+            "my friend said he got approved already is mine done too",
+            "my teammate got the dm, was mine approved?",
+            "has my game been reviewed yet? my friend's was",
+            "my teammate got approved, what about mine",
+        ]:
+            out = self.guard(text, "faq")
+            self.assertEqual(out.route, "status", text)
+
+    def test_process_questions_stay_faq(self):
+        for text in [
+            "is it normal for my teammate to get a dm and i havent gotten one?",
+            "do you send something when you've looked at our game, or do we never find out",
+            "why would only one of us get contacted if we submitted the same game together",
+            "how long does review usually take",
+        ]:
+            self.assertEqual(self.guard(text, "faq").route, "faq", text)
+
+    def test_unfairness_and_currency_are_human(self):
+        for text in [
+            "its kinda sus that another team got approved in 2 hours, is review rigged",
+            "this feels unfair, mine has been waiting forever",
+            "can the steam gift card be sent in a different currency",
+        ]:
+            for route in ("faq", "status"):
+                self.assertEqual(self.guard(text, route).route, "human", text)
 
     def test_plain_tracking_questions_pass(self):
         for text in [
