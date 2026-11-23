@@ -131,12 +131,18 @@ async def close_stale_tickets():
                             f"Skipping stale ticket {ticket.msg_ts}: no assigned or opened user"
                         )
                         continue
-                    await resolve(
-                        ticket.msg_ts,
-                        resolver_user.slack_id,
-                        env.slack_client,
-                        stale=True,
-                    )
+                    try:
+                        await resolve(
+                            ticket.msg_ts,
+                            resolver_user.slack_id,
+                            env.slack_client,
+                            stale=True,
+                        )
+                    except SlackApiError as e:
+                        # One broken thread (deleted, missing) shouldn't end the whole run
+                        logging.warning(
+                            f"Skipping stale ticket {ticket.msg_ts}: {e.response['error']}"
+                        )
 
             # Longer delay between batches
             if i + batch_size < len(tickets):
