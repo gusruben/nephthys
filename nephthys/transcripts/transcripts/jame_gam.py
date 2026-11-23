@@ -30,6 +30,7 @@ if your question gets answered, hit the button below to mark it resolved
     ticket_create: str = f"someone will be along soon! in the meantime check the <{faq_link}|faq>. if your question gets answered, hit the button below to mark it resolved"
     resolve_ticket_button: str = "all good now"
     ticket_resolve: str = f":jamegam-yay: this one was marked resolved by <@{{user_id}}>! more questions? make a new post in <#{help_channel}>"
+    ticket_resolve_stale: str = f"it looks like this post is a bit old! if you still need help, please make a new post in <#{help_channel}> and someone’ll be happy to help you out :jamegam-heart:"
 
     help_bot: HelpBotCopy | None = HelpBotCopy(
         # ---- FAQ answers ----

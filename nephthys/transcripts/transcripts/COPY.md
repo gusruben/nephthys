@@ -6,7 +6,9 @@ The rules are checked by `tests/test_help_bot.py` (`CopyRulesTests`): no em or e
 
 None of this runs in #jame-gam-help until that channel's ID is in `JAMEGAM_NEW_FLOW_CHANNELS`. Until then only the test channel gets it.
 
-The existing messages (`first_ticket_create`, `ticket_create`, `resolve_ticket_button`, `ticket_resolve`) are unchanged. The default `ticket_reopen` ("hey hey! it looks like @x has reopened this post! ...") is still what posts when someone reopens a thread.
+The existing messages (`first_ticket_create`, `ticket_create`, `resolve_ticket_button`, `ticket_resolve`) are unchanged. `ticket_resolve_stale` (posted when a thread is closed for being inactive, only while `STALE_TICKET_DAYS` is set) is: it looks like this post is a bit old! if you still need help, please make a new post in #jame-gam-help and someone’ll be happy to help you out :jamegam-heart:
+
+The default `ticket_reopen` ("hey hey! it looks like @x has reopened this post! ...") is still what posts when someone reopens a thread.
 
 ## FAQ answers
 
