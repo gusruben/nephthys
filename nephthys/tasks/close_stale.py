@@ -122,7 +122,9 @@ async def close_stale_tickets():
                 if await get_is_stale(ticket.msg_ts, stale_ticket_days):
                     stale += 1
                     resolver_user = (
-                        ticket.assigned_to if ticket.assigned_to else ticket.opened_by
+                        ticket.assigned_to
+                        if ticket.assigned_to and ticket.assigned_to.id
+                        else ticket.opened_by
                     )
                     if not resolver_user:
                         logging.warning(
